@@ -223,7 +223,6 @@
                 try {
                     // 1. 동교과 분류 파싱
                     const deptMap = new Map();
-                    // 보이지 않는 BOM 문자 제거 및 따옴표 제거
                     RAW_DEPT_CSV.replace(/^\uFEFF/, '').split(/\r?\n/).forEach(line => {
                         const parts = line.replace(/"/g, '').split(',');
                         if (parts.length >= 2) {
@@ -233,17 +232,16 @@
                         }
                     });
 
-                    // 2. 전체시간표 파싱
+                    // 2. 전체시간표 파싱 (누락 방지 로직 강화)
                     const timeCsvClean = RAW_TIME_CSV.replace(/^\uFEFF/, '').replace(/"/g, '');
                     const rows = timeCsvClean.split(/\r?\n/).map(r => r.split(','));
                     const classes = [];
-                    let currentGrade = "";
+                    let currentGrade = "1"; // 기본값
                     
-                    // 반 정보 추출 (유연한 로직: '학년'과 '반' 키워드가 있는 행 자동 탐색)
                     let gradeRowIdx = -1;
                     let classRowIdx = -1;
                     for(let i = 0; i < Math.min(10, rows.length); i++) {
-                        if(rows[i].some(cell => cell.includes('학년'))) {
+                        if(rows[i] && rows[i].some(cell => cell && cell.includes('학년'))) {
                             gradeRowIdx = i;
                             classRowIdx = i + 1;
                             break;
@@ -251,14 +249,16 @@
                     }
 
                     if (gradeRowIdx !== -1 && rows.length > classRowIdx) {
-                        for (let i = 2; i < rows[gradeRowIdx].length; i++) {
-                            const gCell = rows[gradeRowIdx][i].trim();
+                        // 엑셀 저장 시 빈칸 콤마(,)가 잘려나가는 현상 방지: 두 행 중 더 긴 길이를 기준
+                        const maxLen = Math.max(rows[gradeRowIdx].length, rows[classRowIdx].length);
+                        for (let i = 2; i < maxLen; i++) {
+                            const gCell = rows[gradeRowIdx][i] ? rows[gradeRowIdx][i].trim() : '';
                             if (gCell && gCell.includes('학년')) {
-                                currentGrade = gCell.replace('학년', '').trim();
+                                currentGrade = gCell.replace(/[^0-9]/g, ''); 
                             }
                             const cCell = rows[classRowIdx][i] ? rows[classRowIdx][i].trim() : '';
                             if (cCell && cCell.includes('반')) {
-                                classes[i] = `${currentGrade}-${cCell.replace('반', '').trim()}`;
+                                classes[i] = `${currentGrade}-${cCell.replace(/[^0-9]/g, '')}`;
                             } else if (cCell && !isNaN(cCell) && cCell !== "") {
                                 classes[i] = `${currentGrade}-${cCell}`;
                             }
@@ -269,54 +269,73 @@
                     const dayMap = { '월': 'mon', '화': 'tue', '수': 'wed', '목': 'thu', '금': 'fri', '월요일':'mon', '화요일':'tue', '수요일':'wed', '목요일':'thu', '금요일':'fri' };
                     let currentDay = "";
 
-                    // 5행(또는 학급행 다음)부터 과목/교사 행 반복
                     const startRow = classRowIdx !== -1 ? classRowIdx + 1 : 4;
-                    for (let r = startRow; r < rows.length - 1; r += 2) {
-                        const subjectRow = rows[r];
-                        const teacherRow = rows[r + 1];
-                        if (!subjectRow || !teacherRow) continue;
+                    let r = startRow;
+                    
+                    // 빈 행이나 누락된 행에 유연하게 대처하기 위해 while 루프 사용
+                    while (r < rows.length - 1) {
+                        const row1 = rows[r];
+                        const row2 = rows[r + 1];
 
-                        const dCell = subjectRow[0] ? subjectRow[0].trim() : "";
+                        // 완전히 빈 행은 건너뜀
+                        if (!row1 || row1.every(cell => !cell || cell.trim() === "")) {
+                            r++;
+                            continue;
+                        }
+
+                        const dCell = row1[0] ? row1[0].trim() : "";
                         if (dCell && dayMap[dCell]) {
                             currentDay = dayMap[dCell];
                         }
 
-                        // 교시 추출 (문자열에서 숫자만 추출하여 완벽 인식)
-                        const pCell = (subjectRow[1] || teacherRow[1] || "").trim();
-                        const pMatch = pCell.match(/(\d+)/);
-                        const periodIdx = pMatch ? parseInt(pMatch[1]) - 1 : -1;
+                        const pCell1 = (row1[1] || "").trim();
+                        const pCell2 = row2 ? (row2[1] || "").trim() : "";
+                        
+                        const pMatch = pCell1.match(/(\d+)/) || pCell2.match(/(\d+)/);
+                        
+                        if (pMatch && currentDay && row2) {
+                            const periodIdx = parseInt(pMatch[1]) - 1;
+                            const subjectRow = row1;
+                            const teacherRow = row2;
+                            
+                            if (periodIdx >= 0 && periodIdx <= 6) {
+                                const maxCol = Math.max(subjectRow.length, teacherRow.length);
+                                for (let c = 2; c < maxCol; c++) {
+                                    const subject = subjectRow[c] ? subjectRow[c].trim() : "";
+                                    const rawTeacher = teacherRow[c] ? teacherRow[c].trim() : "";
 
-                        if (periodIdx >= 0 && periodIdx <= 6 && currentDay) {
-                            for (let c = 2; c < subjectRow.length; c++) {
-                                const subject = subjectRow[c] ? subjectRow[c].trim() : "";
-                                const rawTeacher = teacherRow[c] ? teacherRow[c].trim() : "";
-
-                                if (subject && rawTeacher && subject !== "공강" && rawTeacher !== "공강" && !subject.includes('교시')) {
-                                    // 이름 정제: 공백이나 괄호 이전 텍스트만 추출 (예: '추재훈 H-1' -> '추재훈')
-                                    const tNameParts = rawTeacher.split(' ')[0].split('(')[0].split('-')[0];
-                                    const tName = tNameParts.trim();
-                                    
-                                    if (tName.length >= 2) { 
-                                        if (!teachersObj[tName]) {
-                                            teachersObj[tName] = {
-                                                id: Object.keys(teachersObj).length + 1,
-                                                name: tName,
-                                                dept: deptMap.get(tName) || '미분류',
-                                                schedule: {
-                                                    mon: ["", "", "", "", "", "", ""],
-                                                    tue: ["", "", "", "", "", "", ""],
-                                                    wed: ["", "", "", "", "", "", ""],
-                                                    thu: ["", "", "", "", "", "", ""],
-                                                    fri: ["", "", "", "", "", "", ""]
-                                                }
-                                            };
-                                        }
-                                        if (classes[c]) {
-                                            teachersObj[tName].schedule[currentDay][periodIdx] = `${classes[c]} ${subject}`;
+                                    if (subject && rawTeacher && subject !== "공강" && rawTeacher !== "공강" && !subject.includes('교시')) {
+                                        
+                                        // 정규식으로 한글 이름만 정확히 추출 (예: '안준범 H-1' -> '안준범')
+                                        const rawTeacherTrimmed = rawTeacher.trim();
+                                        const nameMatch = rawTeacherTrimmed.match(/^[가-힣]+/);
+                                        const tName = nameMatch ? nameMatch[0] : rawTeacherTrimmed.split(/\s+/)[0];
+                                        
+                                        if (tName && tName.length >= 2) { 
+                                            if (!teachersObj[tName]) {
+                                                teachersObj[tName] = {
+                                                    id: Object.keys(teachersObj).length + 1,
+                                                    name: tName,
+                                                    dept: deptMap.get(tName) || '미분류',
+                                                    schedule: {
+                                                        mon: ["", "", "", "", "", "", ""],
+                                                        tue: ["", "", "", "", "", "", ""],
+                                                        wed: ["", "", "", "", "", "", ""],
+                                                        thu: ["", "", "", "", "", "", ""],
+                                                        fri: ["", "", "", "", "", "", ""]
+                                                    }
+                                                };
+                                            }
+                                            // 반 정보(classes[c])가 엑셀 구조상 짤렸더라도 과목은 저장되도록 Fallback 처리
+                                            const classPrefix = classes[c] ? `${classes[c]} ` : "";
+                                            teachersObj[tName].schedule[currentDay][periodIdx] = `${classPrefix}${subject}`.trim();
                                         }
                                     }
                                 }
                             }
+                            r += 2; // (과목, 교사) 세트를 처리했으므로 2줄 건너뜀
+                        } else {
+                            r++; // 일치하지 않으면 1줄만 건너뛰고 다시 탐색
                         }
                     }
                     setTeachersMaster(Object.values(teachersObj));
