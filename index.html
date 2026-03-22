@@ -36,52 +36,51 @@
         // ============================================================================
         
         // 1. 동교과분류.csv 내용
-        const RAW_DEPT_CSV = `사회,강슬기
-영어,고경미
-수학,고재덕
-교양,구정훈
-사회,권민지
-수학,김병희
-사회,김성년
-국어,김용진
-사회,김지수
-예술,김창훈
-국어,김현정
-영어,김혜미
-수학,남송현
-사회,노우선
-예술,류제원
-국어,박두일
-영어,박은정
-수학,박태완
-국어,송병훈
-예술,신선경
-예술,신은경
+        const RAW_DEPT_CSV = `과학,안준범
+과학,최정곤
 과학,아원미
+과학,이지은
+과학,장영화
+과학,허영
 교양,안은수
-과학,안준범
-수학,옥수민
-예술,유경희
+교양,임성숙
+교양,구정훈
+교양,추재훈
+교양,이소진
+국어,김용진
+국어,박두일
+국어,송병훈
+국어,김현정
+국어,최승희
+국어,이명진
+사회,권민지
 사회,유지연
+사회,김지수
+사회,최미리
+사회,강슬기
+사회,노우선
+사회,김성년
+수학,김병희
+수학,남송현
+수학,박태완
+수학,옥수민
+수학,고재덕
 수학,유지혜
 영어,이광욱
-예술,이동규
-국어,이명진
-교양,이소진
+영어,김혜미
 영어,이정인
-과학,이지은
-교양,임성숙
-과학,장영화
+영어,박은정
+영어,고경미
 영어,정미영
-사회,최미리
-국어,최승희
-과학,최정곤
-교양,추재훈
-과학,허영`;
+예술,신선경
+예술,신은경
+예술,유경희
+예술,류제원
+예술,이동규
+예술,김창훈`;
 
         // 2. 전체시간표(세로).csv 내용
         // (여기에 전체 시간표 파일의 내용을 메모장 등으로 열어서 전체 복사 후 붙여넣으세요.)
-        // 현재는 프로그램이 작동하도록 일부 샘플 포맷만 남겨두었습니다. 덮어쓰시면 됩니다.
         const RAW_TIME_CSV = `2026학년도 1학기 전체시간표,,,,,,,,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,,,,,,,배정고등학교,
 요일,교시,1학년,,,,,,2학년,,,,,,,3학년,,,,,,
@@ -218,25 +217,61 @@
                 localStorage.setItem('smartSubHistory', JSON.stringify(subHistory));
             }, [subHistory]);
 
-            // 앱 시작 시 CSV 텍스트 강력 파싱 (업그레이드 완료)
+            // 안전한 CSV 라인 파서 (쌍따옴표 내 콤마 무시 처리)
+            const parseCSVLine = (text) => {
+                const result = [];
+                let current = '';
+                let inQuotes = false;
+                for (let i = 0; i < text.length; i++) {
+                    const c = text[i];
+                    if (c === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (c === ',' && !inQuotes) {
+                        result.push(current);
+                        current = '';
+                    } else {
+                        current += c;
+                    }
+                }
+                result.push(current);
+                return result.map(s => s.trim());
+            };
+
+            // 앱 시작 시 CSV 텍스트 강력 파싱 (공백 무시 및 강력 추적기법 적용)
             useEffect(() => {
                 try {
-                    // 1. 동교과 분류 파싱
+                    const teachersObj = {};
                     const deptMap = new Map();
+
+                    // 1. 동교과 분류 파싱 및 기본 교사 명단 100% 셋업 (누락 방지)
                     RAW_DEPT_CSV.replace(/^\uFEFF/, '').split(/\r?\n/).forEach(line => {
-                        const parts = line.replace(/"/g, '').split(',');
+                        if (line.trim() === "") return;
+                        const parts = parseCSVLine(line);
                         if (parts.length >= 2) {
-                            const dept = parts[0].trim();
-                            const name = parts[1].trim();
-                            if(dept && name) deptMap.set(name, dept);
+                            const dept = parts[0];
+                            const name = parts[1];
+                            if(dept && name) {
+                                deptMap.set(name, dept);
+                                teachersObj[name] = {
+                                    id: name,
+                                    name: name,
+                                    dept: dept,
+                                    schedule: {
+                                        mon: ["", "", "", "", "", "", ""],
+                                        tue: ["", "", "", "", "", "", ""],
+                                        wed: ["", "", "", "", "", "", ""],
+                                        thu: ["", "", "", "", "", "", ""],
+                                        fri: ["", "", "", "", "", "", ""]
+                                    }
+                                };
+                            }
                         }
                     });
 
-                    // 2. 전체시간표 파싱 (누락 방지 로직 강화)
-                    const timeCsvClean = RAW_TIME_CSV.replace(/^\uFEFF/, '').replace(/"/g, '');
-                    const rows = timeCsvClean.split(/\r?\n/).map(r => r.split(','));
+                    // 2. 전체시간표 파싱
+                    const rows = RAW_TIME_CSV.replace(/^\uFEFF/, '').split(/\r?\n/).map(r => parseCSVLine(r));
                     const classes = [];
-                    let currentGrade = "1"; // 기본값
+                    let currentGrade = "1";
                     
                     let gradeRowIdx = -1;
                     let classRowIdx = -1;
@@ -249,14 +284,13 @@
                     }
 
                     if (gradeRowIdx !== -1 && rows.length > classRowIdx) {
-                        // 엑셀 저장 시 빈칸 콤마(,)가 잘려나가는 현상 방지: 두 행 중 더 긴 길이를 기준
                         const maxLen = Math.max(rows[gradeRowIdx].length, rows[classRowIdx].length);
                         for (let i = 2; i < maxLen; i++) {
-                            const gCell = rows[gradeRowIdx][i] ? rows[gradeRowIdx][i].trim() : '';
+                            const gCell = rows[gradeRowIdx][i] || '';
                             if (gCell && gCell.includes('학년')) {
                                 currentGrade = gCell.replace(/[^0-9]/g, ''); 
                             }
-                            const cCell = rows[classRowIdx][i] ? rows[classRowIdx][i].trim() : '';
+                            const cCell = rows[classRowIdx][i] || '';
                             if (cCell && cCell.includes('반')) {
                                 classes[i] = `${currentGrade}-${cCell.replace(/[^0-9]/g, '')}`;
                             } else if (cCell && !isNaN(cCell) && cCell !== "") {
@@ -265,53 +299,67 @@
                         }
                     }
 
-                    const teachersObj = {};
                     const dayMap = { '월': 'mon', '화': 'tue', '수': 'wed', '목': 'thu', '금': 'fri', '월요일':'mon', '화요일':'tue', '수요일':'wed', '목요일':'thu', '금요일':'fri' };
-                    let currentDay = "";
-
-                    const startRow = classRowIdx !== -1 ? classRowIdx + 1 : 4;
-                    let r = startRow;
                     
-                    // 빈 행이나 누락된 행에 유연하게 대처하기 위해 while 루프 사용
-                    while (r < rows.length - 1) {
-                        const row1 = rows[r];
-                        const row2 = rows[r + 1];
+                    let currentDay = "";
+                    let currentPeriodIdx = -1;
+                    let currentSubjectRow = null;
+                    const startRow = classRowIdx !== -1 ? classRowIdx + 1 : 4;
 
-                        // 완전히 빈 행은 건너뜀
-                        if (!row1 || row1.every(cell => !cell || cell.trim() === "")) {
-                            r++;
-                            continue;
-                        }
+                    // 3. 교시와 교사를 유연하게 찾는 State-Machine 파싱
+                    for (let i = startRow; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row || row.length === 0 || row.every(cell => cell === "")) continue; // 빈 줄 완전 무시
 
-                        const dCell = row1[0] ? row1[0].trim() : "";
-                        if (dCell && dayMap[dCell]) {
-                            currentDay = dayMap[dCell];
-                        }
+                        const c0 = row[0] || "";
+                        const c1 = row[1] || "";
 
-                        const pCell1 = (row1[1] || "").trim();
-                        const pCell2 = row2 ? (row2[1] || "").trim() : "";
+                        // 요일 업데이트
+                        if (c0 && dayMap[c0]) currentDay = dayMap[c0];
+
+                        // 교시 파악 (정규식으로 확인)
+                        const pMatch = c0.match(/(\d+)교시/) || c1.match(/(\d+)교시/);
                         
-                        const pMatch = pCell1.match(/(\d+)/) || pCell2.match(/(\d+)/);
-                        
-                        if (pMatch && currentDay && row2) {
-                            const periodIdx = parseInt(pMatch[1]) - 1;
-                            const subjectRow = row1;
-                            const teacherRow = row2;
+                        // "n교시"라는 글자가 있거나 숫자가 있으면 과목 줄(Subject Row)로 판단
+                        if (pMatch || (c1 && c1.includes('교시'))) {
+                            let pNum = pMatch ? parseInt(pMatch[1]) : parseInt(c1.replace(/[^0-9]/g, ''));
+                            currentPeriodIdx = pNum - 1;
+                            currentSubjectRow = row; // 현재 줄을 과목 줄로 저장
+                        } 
+                        // 과목 줄이 이미 저장되어 있다면, 현재 줄은 무조건 교사 줄(Teacher Row)로 판단
+                        else if (currentSubjectRow) {
+                            const teacherRow = row;
                             
-                            if (periodIdx >= 0 && periodIdx <= 6) {
-                                const maxCol = Math.max(subjectRow.length, teacherRow.length);
+                            // 정상적인 범위의 교시일 때만 처리
+                            if (currentPeriodIdx >= 0 && currentPeriodIdx <= 6 && currentDay) {
+                                const maxCol = Math.max(currentSubjectRow.length, teacherRow.length);
+                                
                                 for (let c = 2; c < maxCol; c++) {
-                                    const subject = subjectRow[c] ? subjectRow[c].trim() : "";
-                                    const rawTeacher = teacherRow[c] ? teacherRow[c].trim() : "";
+                                    const subject = currentSubjectRow[c] || "";
+                                    const rawTeacher = teacherRow[c] || "";
 
                                     if (subject && rawTeacher && subject !== "공강" && rawTeacher !== "공강" && !subject.includes('교시')) {
                                         
-                                        // 정규식으로 한글 이름만 정확히 추출 (예: '안준범 H-1' -> '안준범')
+                                        // 선생님 피드백 반영: '동교과분류' 명단을 기준으로 완벽 매칭!
                                         const rawTeacherTrimmed = rawTeacher.trim();
-                                        const nameMatch = rawTeacherTrimmed.match(/^[가-힣]+/);
-                                        const tName = nameMatch ? nameMatch[0] : rawTeacherTrimmed.split(/\s+/)[0];
+                                        let tName = "";
+                                        
+                                        // 1. 등록된 선생님 이름과 먼저 대조하여 정확히 추출 (기호, 공백 무시)
+                                        for (const validName of deptMap.keys()) {
+                                            if (rawTeacherTrimmed.includes(validName)) {
+                                                tName = validName;
+                                                break;
+                                            }
+                                        }
+                                        
+                                        // 2. 만약 명단에 없다면 한글 2~3글자만 안전하게 추출 ('허영' 2글자, 나머지 3글자)
+                                        if (!tName) {
+                                            const match = rawTeacherTrimmed.match(/[가-힣]{2,3}/);
+                                            if (match) tName = match[0];
+                                        }
                                         
                                         if (tName && tName.length >= 2) { 
+                                            // 명단에 없는 선생님이면 새로 추가
                                             if (!teachersObj[tName]) {
                                                 teachersObj[tName] = {
                                                     id: Object.keys(teachersObj).length + 1,
@@ -326,16 +374,16 @@
                                                     }
                                                 };
                                             }
-                                            // 반 정보(classes[c])가 엑셀 구조상 짤렸더라도 과목은 저장되도록 Fallback 처리
+                                            
+                                            // 과목 텍스트 조립 후 저장
                                             const classPrefix = classes[c] ? `${classes[c]} ` : "";
-                                            teachersObj[tName].schedule[currentDay][periodIdx] = `${classPrefix}${subject}`.trim();
+                                            teachersObj[tName].schedule[currentDay][currentPeriodIdx] = `${classPrefix}${subject}`.trim();
                                         }
                                     }
                                 }
                             }
-                            r += 2; // (과목, 교사) 세트를 처리했으므로 2줄 건너뜀
-                        } else {
-                            r++; // 일치하지 않으면 1줄만 건너뛰고 다시 탐색
+                            // 처리가 끝나면 다시 과목 줄을 찾도록 초기화
+                            currentSubjectRow = null; 
                         }
                     }
                     setTeachersMaster(Object.values(teachersObj));
