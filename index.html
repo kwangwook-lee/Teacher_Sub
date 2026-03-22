@@ -80,7 +80,6 @@
 예술,김창훈`;
 
         // 2. 전체시간표(세로).csv 내용
-        // (여기에 전체 시간표 파일의 내용을 메모장 등으로 열어서 전체 복사 후 붙여넣으세요.)
         const RAW_TIME_CSV = `2026학년도 1학기 전체시간표,,,,,,,,,,,,,,,,,,,,,
 ,,,,,,,,,,,,,,,,,,,,배정고등학교,
 요일,교시,1학년,,,,,,2학년,,,,,,,3학년,,,,,,
@@ -158,31 +157,25 @@
 `;
         // ============================================================================
 
-
         const App = () => {
             const [activeTab, setActiveTab] = useState('register');
             const [teachersMaster, setTeachersMaster] = useState([]);
             const [selectedSemester, setSelectedSemester] = useState("2026-1");
             
-            // 로컬 스토리지에서 누적 기록 불러오기
             const [subHistory, setSubHistory] = useState(() => {
                 const saved = localStorage.getItem('smartSubHistory');
                 return saved ? JSON.parse(saved) : [];
             });
             
-            // UI States
             const [modalTeacher, setModalTeacher] = useState(null);
             const [toastMsg, setToastMsg] = useState(null);
 
-            // Input States
             const [selectedAbsent, setSelectedAbsent] = useState("");
             const [selectedDay, setSelectedDay] = useState("mon");
             const [selectedPeriod, setSelectedPeriod] = useState(0);
 
-            // 통계 보기 모드 상태 추가 ('name' | 'dept')
             const [statsView, setStatsView] = useState('name');
 
-            // --- 선택된 교사의 요일별 실제 수업 교시 계산 로직 ---
             const availablePeriods = useMemo(() => {
                 if (!selectedAbsent || teachersMaster.length === 0) return [0, 1, 2, 3, 4, 5, 6];
                 const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
@@ -191,7 +184,6 @@
                 const daySchedule = absentTeacher.schedule[selectedDay];
                 const periods = [];
                 for (let i = 0; i < 7; i++) {
-                    // 빈칸이 아니면 수업이 있는 것으로 간주
                     if (daySchedule[i] && daySchedule[i].trim() !== "" && daySchedule[i].trim() !== "-") {
                         periods.push(i);
                     }
@@ -199,13 +191,12 @@
                 return periods;
             }, [selectedAbsent, selectedDay, teachersMaster]);
 
-            // 요일이나 결강교사가 바뀔 때 자동 교시 설정
             useEffect(() => {
                 if (selectedAbsent) {
                     if (availablePeriods.length > 0) {
                         setSelectedPeriod((prev) => availablePeriods.includes(prev) ? prev : availablePeriods[0]);
                     } else {
-                        setSelectedPeriod(-1); // 수업이 없는 날
+                        setSelectedPeriod(-1);
                     }
                 }
             }, [availablePeriods, selectedAbsent]);
@@ -215,12 +206,10 @@
                 setTimeout(() => setToastMsg(null), 3000);
             };
 
-            // 누적 기록 자동 저장
             useEffect(() => {
                 localStorage.setItem('smartSubHistory', JSON.stringify(subHistory));
             }, [subHistory]);
 
-            // 안전한 CSV 라인 파서 (쌍따옴표 내 콤마 무시 처리)
             const parseCSVLine = (text) => {
                 const result = [];
                 let current = '';
@@ -240,13 +229,11 @@
                 return result.map(s => s.trim());
             };
 
-            // 앱 시작 시 CSV 텍스트 강력 파싱 (공백 무시 및 강력 추적기법 적용)
             useEffect(() => {
                 try {
                     const teachersObj = {};
                     const deptMap = new Map();
 
-                    // 1. 동교과 분류 파싱 및 기본 교사 명단 100% 셋업 (누락 방지)
                     RAW_DEPT_CSV.replace(/^\uFEFF/, '').split(/\r?\n/).forEach(line => {
                         if (line.trim() === "") return;
                         const parts = parseCSVLine(line);
@@ -271,7 +258,6 @@
                         }
                     });
 
-                    // 2. 전체시간표 파싱
                     const rows = RAW_TIME_CSV.replace(/^\uFEFF/, '').split(/\r?\n/).map(r => parseCSVLine(r));
                     const classes = [];
                     let currentGrade = "1";
@@ -309,31 +295,25 @@
                     let currentSubjectRow = null;
                     const startRow = classRowIdx !== -1 ? classRowIdx + 1 : 4;
 
-                    // 3. 교시와 교사를 유연하게 찾는 State-Machine 파싱
                     for (let i = startRow; i < rows.length; i++) {
                         const row = rows[i];
-                        if (!row || row.length === 0 || row.every(cell => cell === "")) continue; // 빈 줄 완전 무시
+                        if (!row || row.length === 0 || row.every(cell => cell === "")) continue;
 
                         const c0 = row[0] || "";
                         const c1 = row[1] || "";
 
-                        // 요일 업데이트
                         if (c0 && dayMap[c0]) currentDay = dayMap[c0];
 
-                        // 교시 파악 (정규식으로 확인)
                         const pMatch = c0.match(/(\d+)교시/) || c1.match(/(\d+)교시/);
                         
-                        // "n교시"라는 글자가 있거나 숫자가 있으면 과목 줄(Subject Row)로 판단
                         if (pMatch || (c1 && c1.includes('교시'))) {
                             let pNum = pMatch ? parseInt(pMatch[1]) : parseInt(c1.replace(/[^0-9]/g, ''));
                             currentPeriodIdx = pNum - 1;
-                            currentSubjectRow = row; // 현재 줄을 과목 줄로 저장
+                            currentSubjectRow = row;
                         } 
-                        // 과목 줄이 이미 저장되어 있다면, 현재 줄은 무조건 교사 줄(Teacher Row)로 판단
                         else if (currentSubjectRow) {
                             const teacherRow = row;
                             
-                            // 정상적인 범위의 교시일 때만 처리
                             if (currentPeriodIdx >= 0 && currentPeriodIdx <= 6 && currentDay) {
                                 const maxCol = Math.max(currentSubjectRow.length, teacherRow.length);
                                 
@@ -342,12 +322,9 @@
                                     const rawTeacher = teacherRow[c] || "";
 
                                     if (subject && rawTeacher && subject !== "공강" && rawTeacher !== "공강" && !subject.includes('교시')) {
-                                        
-                                        // 선생님 피드백 반영: '동교과분류' 명단을 기준으로 완벽 매칭!
                                         const rawTeacherTrimmed = rawTeacher.trim();
                                         let tName = "";
                                         
-                                        // 1. 등록된 선생님 이름과 먼저 대조하여 정확히 추출 (기호, 공백 무시)
                                         for (const validName of deptMap.keys()) {
                                             if (rawTeacherTrimmed.includes(validName)) {
                                                 tName = validName;
@@ -355,14 +332,12 @@
                                             }
                                         }
                                         
-                                        // 2. 만약 명단에 없다면 한글 2~3글자만 안전하게 추출 ('허영' 2글자, 나머지 3글자)
                                         if (!tName) {
                                             const match = rawTeacherTrimmed.match(/[가-힣]{2,3}/);
                                             if (match) tName = match[0];
                                         }
                                         
                                         if (tName && tName.length >= 2) { 
-                                            // 명단에 없는 선생님이면 새로 추가
                                             if (!teachersObj[tName]) {
                                                 teachersObj[tName] = {
                                                     id: Object.keys(teachersObj).length + 1,
@@ -378,14 +353,12 @@
                                                 };
                                             }
                                             
-                                            // 과목 텍스트 조립 후 저장
                                             const classPrefix = classes[c] ? `${classes[c]} ` : "";
                                             teachersObj[tName].schedule[currentDay][currentPeriodIdx] = `${classPrefix}${subject}`.trim();
                                         }
                                     }
                                 }
                             }
-                            // 처리가 끝나면 다시 과목 줄을 찾도록 초기화
                             currentSubjectRow = null; 
                         }
                     }
@@ -405,22 +378,30 @@
                 return counts;
             }, [subHistory, selectedSemester]);
 
+            // [핵심] 3연강 원천 차단 함수 (정규수업 + 수락된 보강 + 이번에 배정할 보강까지 모두 시뮬레이션)
             const isConsecutive = (teacher, day, pIdx) => {
                 if (pIdx === -1) return false;
                 
-                // 정규 수업 외에 '이미 수락한 보강'도 포함하여 3연강 방지 체킹
+                // 1. 해당 교사의 원래 정규 시간표 복사
                 const effectiveSchedule = [...teacher.schedule[day]];
+                
+                // 2. 이미 수락한 다른 보강 내역을 시간표에 '보강'으로 추가
                 subHistory.forEach(h => {
                     if (h.semester === selectedSemester && h.day === day && h.subName === teacher.name) {
                         effectiveSchedule[h.period - 1] = "보강";
                     }
                 });
 
-                const s = effectiveSchedule;
-                if (pIdx >= 2 && s[pIdx - 1] !== "" && s[pIdx - 2] !== "") return true;
-                if (pIdx >= 1 && pIdx <= 5 && s[pIdx - 1] !== "" && s[pIdx + 1] !== "") return true;
-                if (pIdx <= 4 && s[pIdx + 1] !== "" && s[pIdx + 2] !== "") return true;
-                return false;
+                // 3. 이번에 배정하려는 교시를 임시로 '보강'으로 넣어봄
+                effectiveSchedule[pIdx] = "보강";
+
+                // 4. 1교시부터 7교시까지 전체를 스캔하며 연속 3칸이 차있는지 확인
+                for (let i = 0; i <= 4; i++) {
+                    if (effectiveSchedule[i] !== "" && effectiveSchedule[i+1] !== "" && effectiveSchedule[i+2] !== "") {
+                        return true; // 3연강 발생 시 배정 불가!
+                    }
+                }
+                return false; // 3연강 없음 (안전)
             };
 
             const topCandidates = useMemo(() => {
@@ -428,7 +409,7 @@
                 const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
                 if (!absentTeacher) return [];
 
-                // 해당 교시에 이미 다른 선생님의 보강으로 들어가는 교사 목록 추출
+                // 해당 교시에 이미 다른 보강이 배정된 교사 목록
                 const busySubTeachers = new Set(
                     subHistory
                         .filter(h => h.semester === selectedSemester && h.day === selectedDay && h.period === selectedPeriod + 1)
@@ -438,28 +419,45 @@
                 const activeTeacherCounts = teachersMaster.map(t => teacherCounts[t.name] || 0);
                 const minCount = activeTeacherCounts.length > 0 ? Math.min(...activeTeacherCounts) : 0;
 
+                const currentSemesterHistory = subHistory.filter(h => h.semester === selectedSemester);
+                const lastDeptHistory = currentSemesterHistory.find(h => h.subDept === absentTeacher.dept);
+                const lastAssignedName = lastDeptHistory ? lastDeptHistory.subName : (currentSemesterHistory[0]?.subName || "");
+
+                const nameCompare = (aName, bName) => {
+                    if (!lastAssignedName) return aName.localeCompare(bName);
+                    const aWrapped = aName <= lastAssignedName;
+                    const bWrapped = bName <= lastAssignedName;
+                    if (aWrapped !== bWrapped) return aWrapped ? 1 : -1;
+                    return aName.localeCompare(bName);
+                };
+
+                // [가장 중요] 여기서 3연강 여부를 먼저 100% 필터링합니다. (모든 그룹 공통 적용)
                 const freeOnes = teachersMaster.filter(t => 
                     t.name !== selectedAbsent && 
                     t.schedule[selectedDay][selectedPeriod] === "" &&
-                    !busySubTeachers.has(t.name) && // 중복 배정 원천 차단
-                    !isConsecutive(t, selectedDay, selectedPeriod)
+                    !busySubTeachers.has(t.name) && 
+                    !isConsecutive(t, selectedDay, selectedPeriod) // ★ 어떤 상황에서도 3연강 발생 교사는 여기서 원천 차단됨
                 );
 
                 const groupA = freeOnes.filter(t => 
-                    t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) < minCount + 5
-                ).sort((a, b) => (teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0) || a.name.localeCompare(b.name));
+                    t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) < minCount + 2
+                ).sort((a, b) => nameCompare(a.name, b.name));
 
                 const groupB = freeOnes.filter(t => 
-                    t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) >= minCount + 5
-                ).sort((a, b) => (teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0) || a.name.localeCompare(b.name));
+                    t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) >= minCount + 2
+                ).sort((a, b) => nameCompare(a.name, b.name));
 
-                const groupC = freeOnes.filter(t => t.dept !== absentTeacher.dept)
-                    .sort((a, b) => (teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0) || a.name.localeCompare(b.name));
+                const groupC = freeOnes.filter(t => 
+                    t.dept !== absentTeacher.dept && (teacherCounts[t.name] || 0) < minCount + 2
+                ).sort((a, b) => nameCompare(a.name, b.name));
 
-                return [...groupA, ...groupB, ...groupC].slice(0, 5);
+                const groupD = freeOnes.filter(t => 
+                    t.dept !== absentTeacher.dept && (teacherCounts[t.name] || 0) >= minCount + 2
+                ).sort((a, b) => (teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0) || nameCompare(a.name, b.name));
+
+                return [...groupA, ...groupB, ...groupC, ...groupD].slice(0, 5);
             }, [selectedAbsent, selectedDay, selectedPeriod, teachersMaster, teacherCounts, subHistory, selectedSemester]);
 
-            // 이미 배정된 보강인지 확인하는 로직 (초록색 완료 화면용)
             const existingSub = useMemo(() => {
                 if (!selectedAbsent || selectedPeriod === -1) return null;
                 return subHistory.find(h =>
@@ -488,10 +486,6 @@
                 
                 setSubHistory(prev => [newRecord, ...prev]);
                 setModalTeacher(null);
-                
-                // 확정 후 결강 교사 선택을 초기화하던 부분(setSelectedAbsent(""))을 삭제하여 
-                // 배정완료 화면이 바로 나타나도록 수정했습니다.
-                
                 showToast(`${teacher.name} 선생님으로 보강이 확정 및 저장되었습니다.`);
             };
 
@@ -535,7 +529,6 @@
             return (
                 <div className="min-h-screen bg-slate-50 text-slate-800 pb-20 md:pb-0 font-sans selection:bg-blue-100 selection:text-blue-900">
                     
-                    {/* 모바일 상단 헤더 */}
                     <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-4 sticky top-0 z-30 flex items-center justify-between md:hidden shadow-sm">
                         <h1 className="font-black text-xl text-blue-600 flex items-center gap-2">
                             <Database size={20} /> SmartSub
@@ -544,7 +537,6 @@
                     </header>
 
                     <div className="flex flex-col md:flex-row min-h-screen">
-                        {/* PC 사이드바 */}
                         <aside className="w-64 bg-slate-900 text-white p-6 hidden md:flex flex-col sticky top-0 h-screen shadow-xl z-20">
                             <h2 className="text-2xl font-black mb-10 flex items-center gap-3">
                                 <div className="bg-blue-600 p-2 rounded-xl"><Database size={24}/></div>
@@ -566,14 +558,14 @@
                                 ))}
                             </nav>
                             
-                            {/* 배정 기준 안내 추가 */}
                             <div className="pt-6 border-t border-slate-800 mt-auto">
                                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-3">자동 배정 기준</p>
                                 <ul className="text-xs text-slate-400 space-y-2 opacity-90">
-                                    <li className="flex gap-2"><span className="text-blue-400">1</span> <div><b className="text-slate-200">동교과 우선</b> (최저횟수순)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">2</span> <div><b className="text-slate-200">3연강 방지</b> (기존+보강 합산)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">3</span> <div><b className="text-slate-200">형평성</b> (5회 이상 차이 시 후순위)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">4</span> <div><b className="text-slate-200">동순위 시</b> (이름 가나다순)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">1</span> <div><b className="text-slate-200">3연강 절대 불가</b> (기존+보강 합산)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">2</span> <div><b className="text-slate-200">동교과 우선</b> (3연강 제외)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">3</span> <div><b className="text-slate-200">타교과 확대</b> (동교과 불가 시)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">4</span> <div><b className="text-slate-200">가나다순 로테이션</b> (직전 배정자 후순위)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">5</span> <div><b className="text-slate-200">형평성 조율</b> (2회 이상 차이 시 후순위)</div></li>
                                 </ul>
                             </div>
 
@@ -586,10 +578,8 @@
                             </div>
                         </aside>
 
-                        {/* 메인 콘텐츠 영역 */}
                         <main className="flex-1 w-full max-w-5xl mx-auto p-4 md:p-10">
                             
-                            {/* 1. 보강 배정 탭 */}
                             {activeTab === 'register' && (
                                 <div className="space-y-8 animate-in fade-in duration-500">
                                     <div className="hidden md:block">
@@ -625,7 +615,6 @@
                                                         availablePeriods.map(i => {
                                                             const t = teachersMaster.find(t => t.name === selectedAbsent);
                                                             const className = t ? t.schedule[selectedDay][i] : '';
-                                                            // 배정 완료 여부 확인
                                                             const isAssigned = subHistory.some(h => h.semester === selectedSemester && h.absentName === selectedAbsent && h.day === selectedDay && h.period === i + 1);
                                                             return <option key={i} value={i}>{i+1}교시 ({className}){isAssigned ? ' - [배정완료]' : ''}</option>;
                                                         })
@@ -702,7 +691,6 @@
                                 </div>
                             )}
 
-                            {/* 3. 누적 기록부 탭 */}
                             {activeTab === 'history' && (
                                 <div className="space-y-6 animate-in fade-in duration-500">
                                     <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -766,7 +754,6 @@
                                 </div>
                             )}
 
-                            {/* 4. 통계 탭 */}
                             {activeTab === 'stats' && (
                                 <div className="space-y-4 md:space-y-6 animate-in fade-in duration-500">
                                     <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -806,16 +793,13 @@
                                     ) : (
                                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 md:gap-4 items-start">
                                             {(() => {
-                                                // 지정된 교과별 나열 순서 (미분류 제외)
                                                 const deptOrder = ['국어', '수학', '영어', '사회', '과학', '예체', '교양'];
                                                 const grouped = {};
                                                 
                                                 teachersMaster.forEach(t => {
-                                                    // 기존 CSV의 '예술'을 요구사항인 '예체'로 통합 분류
                                                     let d = t.dept || '미분류';
                                                     if (d === '예술') d = '예체';
                                                     
-                                                    // 미분류는 통계에서 완전히 제외
                                                     if (d === '미분류' || !deptOrder.includes(d)) return;
                                                     
                                                     if (!grouped[d]) grouped[d] = [];
@@ -827,12 +811,9 @@
                                                     
                                                     return (
                                                         <div key={dept} className="flex flex-col gap-2">
-                                                            {/* 과목 헤더 */}
                                                             <div className="bg-slate-100 p-2 rounded-xl text-center border border-slate-200 shadow-sm">
                                                                 <h4 className="text-xs font-black text-slate-600">{dept}과</h4>
                                                             </div>
-                                                            
-                                                            {/* 해당 과목 교사 목록 (세로로 컴팩트하게 배치) */}
                                                             <div className="flex flex-col gap-1.5">
                                                                 {grouped[dept].sort((a, b) => a.name.localeCompare(b.name)).map(t => {
                                                                     const count = teacherCounts[t.name] || 0;
@@ -861,7 +842,6 @@
                         </main>
                     </div>
 
-                    {/* 모바일 전용 하단 탭 바 */}
                     <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t border-slate-200 px-2 py-2 flex justify-around md:hidden z-40 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
                         {[
                             { id: 'register', label: '배정', icon: <UserCheck size={22}/> },
@@ -875,7 +855,6 @@
                         ))}
                     </footer>
 
-                    {/* 시간표 상세 및 확정 모달 (Custom UI) */}
                     {modalTeacher && (
                         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
                             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setModalTeacher(null)}></div>
@@ -932,7 +911,6 @@
                         </div>
                     )}
 
-                    {/* Custom Toast 알림 */}
                     {toastMsg && (
                         <div className="fixed bottom-24 md:bottom-10 left-1/2 -translate-x-1/2 z-50 toast-animate">
                             <div className="bg-slate-800 text-white px-6 py-4 rounded-2xl shadow-2xl font-bold flex items-center gap-3 min-w-[300px] justify-center text-sm md:text-base">
