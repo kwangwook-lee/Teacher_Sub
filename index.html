@@ -468,7 +468,10 @@
                 
                 setSubHistory(prev => [newRecord, ...prev]);
                 setModalTeacher(null);
-                setSelectedAbsent("");
+                
+                // 확정 후 결강 교사 선택을 초기화하던 부분(setSelectedAbsent(""))을 삭제하여 
+                // 배정완료 화면이 바로 나타나도록 수정했습니다.
+                
                 showToast(`${teacher.name} 선생님으로 보강이 확정 및 저장되었습니다.`);
             };
 
