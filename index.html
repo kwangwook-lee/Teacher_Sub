@@ -179,6 +179,9 @@
             const [selectedDay, setSelectedDay] = useState("mon");
             const [selectedPeriod, setSelectedPeriod] = useState(0);
 
+            // 통계 보기 모드 상태 추가 ('name' | 'dept')
+            const [statsView, setStatsView] = useState('name');
+
             // --- 선택된 교사의 요일별 실제 수업 교시 계산 로직 ---
             const availablePeriods = useMemo(() => {
                 if (!selectedAbsent || teachersMaster.length === 0) return [0, 1, 2, 3, 4, 5, 6];
@@ -562,7 +565,19 @@
                                     </button>
                                 ))}
                             </nav>
-                            <div className="pt-6 border-t border-slate-800">
+                            
+                            {/* 배정 기준 안내 추가 */}
+                            <div className="pt-6 border-t border-slate-800 mt-auto">
+                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-3">자동 배정 기준</p>
+                                <ul className="text-xs text-slate-400 space-y-2 opacity-90">
+                                    <li className="flex gap-2"><span className="text-blue-400">1</span> <div><b className="text-slate-200">동교과 우선</b> (최저횟수순)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">2</span> <div><b className="text-slate-200">3연강 방지</b> (기존+보강 합산)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">3</span> <div><b className="text-slate-200">형평성</b> (5회 이상 차이 시 후순위)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">4</span> <div><b className="text-slate-200">동순위 시</b> (이름 가나다순)</div></li>
+                                </ul>
+                            </div>
+
+                            <div className="pt-6 border-t border-slate-800 mt-6">
                                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Storage Mode</p>
                                 <div className="flex items-center gap-2 mt-2 text-xs font-bold text-green-400">
                                     <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
@@ -753,33 +768,94 @@
 
                             {/* 4. 통계 탭 */}
                             {activeTab === 'stats' && (
-                                <div className="space-y-6 animate-in fade-in duration-500">
-                                    <header>
-                                        <h2 className="text-3xl font-black text-slate-800">교사별 누적 통계</h2>
-                                        <p className="text-slate-500 mt-2 font-medium">선택된 학기의 전체 보강 횟수 분포입니다.</p>
+                                <div className="space-y-4 md:space-y-6 animate-in fade-in duration-500">
+                                    <header className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                                        <div>
+                                            <h2 className="text-2xl md:text-3xl font-black text-slate-800">교사별 누적 통계</h2>
+                                            <p className="text-sm md:text-base text-slate-500 mt-1 font-medium">선택된 학기의 전체 보강 횟수 분포입니다. (전체 한눈에 보기)</p>
+                                        </div>
+                                        <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 self-start md:self-auto">
+                                            <button onClick={() => setStatsView('name')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${statsView === 'name' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>이름 가나다순</button>
+                                            <button onClick={() => setStatsView('dept')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${statsView === 'dept' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>교과별 배열</button>
+                                        </div>
                                     </header>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                                        {[...teachersMaster]
-                                            .sort((a, b) => a.name.localeCompare(b.name))
-                                            .map(t => {
-                                            const count = teacherCounts[t.name] || 0;
-                                            return (
-                                                <div key={t.id} className="bg-white p-5 rounded-[1.5rem] border border-slate-200 shadow-sm flex flex-col justify-between">
-                                                    <div className="flex items-center justify-between mb-4">
-                                                        <span className="text-[10px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded">{t.dept}</span>
-                                                        {count > 5 && <AlertCircle size={14} className="text-orange-500" />}
-                                                    </div>
-                                                    <div>
-                                                        <h4 className="text-lg font-black text-slate-800">{t.name}</h4>
-                                                        <div className="mt-2 flex items-baseline gap-1">
-                                                            <span className={`text-3xl font-black ${count > 5 ? 'text-orange-500' : 'text-blue-600'}`}>{count}</span>
-                                                            <span className="text-xs font-bold text-slate-400">회</span>
+
+                                    {statsView === 'name' ? (
+                                        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 md:gap-3">
+                                            {[...teachersMaster]
+                                                .sort((a, b) => a.name.localeCompare(b.name))
+                                                .map(t => {
+                                                const count = teacherCounts[t.name] || 0;
+                                                return (
+                                                    <div key={t.id} className={`p-2.5 md:p-3 rounded-xl border flex flex-col justify-between transition-colors ${count > 0 ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50/50 border-slate-100'}`}>
+                                                        <div className="flex justify-between items-start mb-1">
+                                                            <span className="text-[9px] md:text-[10px] font-black bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded tracking-widest">{t.dept}</span>
+                                                            {count > 5 && <AlertCircle size={12} className="text-orange-500 animate-pulse" />}
+                                                        </div>
+                                                        <div className="flex items-end justify-between mt-1">
+                                                            <h4 className={`text-xs md:text-sm font-black whitespace-nowrap ${count > 0 ? 'text-slate-800' : 'text-slate-500'}`}>{t.name}</h4>
+                                                            <div className="flex items-baseline">
+                                                                <span className={`text-lg md:text-xl font-black leading-none ${count > 5 ? 'text-orange-500' : count > 0 ? 'text-blue-600' : 'text-slate-300'}`}>{count}</span>
+                                                                <span className="text-[9px] md:text-[10px] font-bold text-slate-400 ml-0.5">회</span>
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 md:gap-4 items-start">
+                                            {(() => {
+                                                // 지정된 교과별 나열 순서 (미분류 제외)
+                                                const deptOrder = ['국어', '수학', '영어', '사회', '과학', '예체', '교양'];
+                                                const grouped = {};
+                                                
+                                                teachersMaster.forEach(t => {
+                                                    // 기존 CSV의 '예술'을 요구사항인 '예체'로 통합 분류
+                                                    let d = t.dept || '미분류';
+                                                    if (d === '예술') d = '예체';
+                                                    
+                                                    // 미분류는 통계에서 완전히 제외
+                                                    if (d === '미분류' || !deptOrder.includes(d)) return;
+                                                    
+                                                    if (!grouped[d]) grouped[d] = [];
+                                                    grouped[d].push(t);
+                                                });
+
+                                                return deptOrder.map(dept => {
+                                                    if (!grouped[dept] || grouped[dept].length === 0) return null;
+                                                    
+                                                    return (
+                                                        <div key={dept} className="flex flex-col gap-2">
+                                                            {/* 과목 헤더 */}
+                                                            <div className="bg-slate-100 p-2 rounded-xl text-center border border-slate-200 shadow-sm">
+                                                                <h4 className="text-xs font-black text-slate-600">{dept}과</h4>
+                                                            </div>
+                                                            
+                                                            {/* 해당 과목 교사 목록 (세로로 컴팩트하게 배치) */}
+                                                            <div className="flex flex-col gap-1.5">
+                                                                {grouped[dept].sort((a, b) => a.name.localeCompare(b.name)).map(t => {
+                                                                    const count = teacherCounts[t.name] || 0;
+                                                                    return (
+                                                                        <div key={t.id} className={`px-2.5 py-2 rounded-lg border flex items-center justify-between transition-colors ${count > 0 ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50/50 border-slate-100'}`}>
+                                                                            <div className="flex items-center gap-1 overflow-hidden">
+                                                                                <h4 className={`text-xs font-black whitespace-nowrap ${count > 0 ? 'text-slate-800' : 'text-slate-500'}`}>{t.name}</h4>
+                                                                                {count > 5 && <AlertCircle size={12} className="text-orange-500 animate-pulse shrink-0" />}
+                                                                            </div>
+                                                                            <div className="flex items-baseline shrink-0">
+                                                                                <span className={`text-sm font-black leading-none ${count > 5 ? 'text-orange-500' : count > 0 ? 'text-blue-600' : 'text-slate-300'}`}>{count}</span>
+                                                                                <span className="text-[9px] font-bold text-slate-400 ml-0.5">회</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    )
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                });
+                                            })()}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </main>
