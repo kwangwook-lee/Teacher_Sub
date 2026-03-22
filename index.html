@@ -439,6 +439,17 @@
                 return [...groupA, ...groupB, ...groupC].slice(0, 5);
             }, [selectedAbsent, selectedDay, selectedPeriod, teachersMaster, teacherCounts]);
 
+            // 이미 배정된 보강인지 확인하는 로직 추가
+            const existingSub = useMemo(() => {
+                if (!selectedAbsent || selectedPeriod === -1) return null;
+                return subHistory.find(h =>
+                    h.semester === selectedSemester &&
+                    h.absentName === selectedAbsent &&
+                    h.day === selectedDay &&
+                    h.period === selectedPeriod + 1
+                );
+            }, [subHistory, selectedSemester, selectedAbsent, selectedDay, selectedPeriod]);
+
             const handleSubConfirm = (teacher) => {
                 const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
                 const newRecord = {
@@ -568,7 +579,9 @@
                                                         availablePeriods.map(i => {
                                                             const t = teachersMaster.find(t => t.name === selectedAbsent);
                                                             const className = t ? t.schedule[selectedDay][i] : '';
-                                                            return <option key={i} value={i}>{i+1}교시 ({className})</option>;
+                                                            // 배정 완료 여부 확인
+                                                            const isAssigned = subHistory.some(h => h.semester === selectedSemester && h.absentName === selectedAbsent && h.day === selectedDay && h.period === i + 1);
+                                                            return <option key={i} value={i}>{i+1}교시 ({className}){isAssigned ? ' - [배정완료]' : ''}</option>;
                                                         })
                                                     )}
                                                 </select>
@@ -596,6 +609,13 @@
                                                 <Layout size={48} className="mx-auto mb-4 text-slate-300" />
                                                 <p className="text-slate-600 font-black text-lg">해당 요일에는 수업이 없습니다.</p>
                                                 <p className="text-sm text-slate-400 mt-2 font-medium">결강 교사의 다른 요일을 선택해주세요.</p>
+                                            </div>
+                                        ) : existingSub ? (
+                                            <div className="bg-green-50 p-12 rounded-[2.5rem] border border-green-200 text-center">
+                                                <CheckCircle2 size={48} className="mx-auto mb-4 text-green-500" />
+                                                <p className="text-green-800 font-black text-xl">이미 배정이 완료된 수업입니다.</p>
+                                                <p className="text-base text-green-700 mt-2 font-bold">담당 교사: {existingSub.subName} 선생님</p>
+                                                <p className="text-sm text-green-600 mt-2 font-medium">수정을 원하시면 [누적 기록부]에서 해당 기록을 삭제해주세요.</p>
                                             </div>
                                         ) : topCandidates.length === 0 ? (
                                             <div className="bg-orange-50 p-12 rounded-[2.5rem] border border-orange-100 text-center">
