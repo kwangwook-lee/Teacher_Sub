@@ -431,9 +431,13 @@
                     return aName.localeCompare(bName);
                 };
 
+                // 특정 교사(이정연, 주원석) 추천 목록에서 영구 제외 (화면 기준에는 미노출)
+                const excludedTeachers = ["이정연", "주원석"];
+
                 // [가장 중요] 여기서 3연강 여부를 먼저 100% 필터링합니다. (모든 그룹 공통 적용)
                 const freeOnes = teachersMaster.filter(t => 
                     t.name !== selectedAbsent && 
+                    !excludedTeachers.includes(t.name) && // ★ 제외 교사 필터링 적용
                     t.schedule[selectedDay][selectedPeriod] === "" &&
                     !busySubTeachers.has(t.name) && 
                     !isConsecutive(t, selectedDay, selectedPeriod) // ★ 어떤 상황에서도 3연강 발생 교사는 여기서 원천 차단됨
