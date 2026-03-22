@@ -488,12 +488,26 @@
                     showToast("내보낼 데이터가 없습니다.");
                     return;
                 }
-                const header = "날짜,요일,교시,결강교사,결강과목,보강교사,학기\n";
-                const rows = currentData.map(h => 
-                    `"${h.date}","${h.day}","${h.period}교시","${h.absentName}","${h.classInfo}","${h.subName}","${h.semester}"`
+                
+                // 1. 상세 기록 부문 (누적 횟수 열 추가)
+                let csvContent = "--- 상세 보강 내역 ---\n";
+                csvContent += "날짜,요일,교시,결강교사,결강과목,보강담당교사,보강교사 총누적횟수,학기\n";
+                csvContent += currentData.map(h => 
+                    `"${h.date}","${h.day}","${h.period}교시","${h.absentName}","${h.classInfo}","${h.subName}","${teacherCounts[h.subName] || 0}회","${h.semester}"`
                 ).join("\n");
                 
-                const blob = new Blob(["\ufeff" + header + rows], { type: 'text/csv;charset=utf-8;' });
+                // 2. 교사별 누적 통계 요약 부문 추가
+                csvContent += "\n\n\n--- 교사별 누적 보강 횟수 총괄표 ---\n";
+                csvContent += "부서,교사 성함,이번 학기 누적 횟수\n";
+                const statsRows = [...teachersMaster]
+                    .sort((a, b) => a.dept.localeCompare(b.dept) || a.name.localeCompare(b.name))
+                    .map(t => `"${t.dept}","${t.name}","${teacherCounts[t.name] || 0}회"`)
+                    .join("\n");
+                    
+                csvContent += statsRows;
+                
+                // 엑셀에서 한글 깨짐 방지용 BOM 추가
+                const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
                 link.href = url;
