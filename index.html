@@ -207,7 +207,8 @@
                 const daySchedule = absentTeacher.schedule[selectedDay];
                 const periods = [];
                 for (let i = 0; i < 7; i++) {
-                    if (daySchedule[i] && daySchedule[i].trim() !== "" && daySchedule[i].trim() !== "-") {
+                    // '공강' 글자가 포함된 시간은 수업이 없는 시간으로 처리하여 결강 교시 목록에서 제외
+                    if (daySchedule[i] && daySchedule[i].trim() !== "" && daySchedule[i].trim() !== "-" && !daySchedule[i].includes("공강")) {
                         periods.push(i);
                     }
                 }
@@ -339,8 +340,8 @@
                                     const subject = subjectRow[colIdx] ? subjectRow[colIdx].trim() : "";
                                     const className = classRow && classRow[colIdx] ? classRow[colIdx].trim() : "";
 
-                                    // '공강' 등 수업이 아닌 문구 무시
-                                    if (subject && !subject.includes("공강") && subject !== "-") {
+                                    // '공강' 단어를 화면에 표시하기 위해 무시 필터(!subject.includes("공강")) 제거
+                                    if (subject && subject !== "-") {
                                         const classPrefix = className ? `${className} ` : "";
                                         teachersObj[tName].schedule[dayKey][p] = `${classPrefix}${subject}`.trim();
                                     }
@@ -365,12 +366,12 @@
                 return counts;
             }, [subHistory, selectedSemester]);
 
-            // [추가] 교사의 특정 요일 당일 총 수업 시수 계산 (정규수업 + 확정된 보강 합산)
+            // [수정] 교사의 특정 요일 당일 총 수업 시수 계산 ('공강'은 수업 시수에서 제외)
             const getDayClassCountLocal = (teacher) => {
                 let count = 0;
                 const s = teacher.schedule[selectedDay];
                 for (let i = 0; i < 7; i++) {
-                    if (s[i] && s[i].trim() !== "" && s[i].trim() !== "-") count++;
+                    if (s[i] && s[i].trim() !== "" && s[i].trim() !== "-" && !s[i].includes("공강")) count++;
                 }
                 subHistory.forEach(h => {
                     if (h.semester === selectedSemester && h.day === selectedDay && h.subName === teacher.name) {
@@ -380,7 +381,7 @@
                 return count;
             };
 
-            // [핵심] 3연강 원천 차단 함수 (정규수업 + 수락된 보강 + 이번에 배정할 보강까지 모두 시뮬레이션)
+            // [수정] 3연강 원천 차단 함수 ('공강'은 수업이 아니므로 연강 카운트에서 제외)
             const isConsecutive = (teacher, day, pIdx) => {
                 if (pIdx === -1) return false;
                 
@@ -394,8 +395,13 @@
 
                 effectiveSchedule[pIdx] = "보강";
 
+                // 수업이 있는지 판단하는 함수 (공강은 수업 아님)
+                const hasClass = (content) => {
+                    return content !== "" && content !== undefined && !content.includes("공강");
+                };
+
                 for (let i = 0; i <= 4; i++) {
-                    if (effectiveSchedule[i] !== "" && effectiveSchedule[i+1] !== "" && effectiveSchedule[i+2] !== "") {
+                    if (hasClass(effectiveSchedule[i]) && hasClass(effectiveSchedule[i+1]) && hasClass(effectiveSchedule[i+2])) {
                         return true;
                     }
                 }
@@ -439,13 +445,13 @@
                 // 특정 교사 추천 목록 영구 제외
                 const excludedTeachers = ["이정연", "주원석"];
 
-                const freeOnes = teachersMaster.filter(t => 
-                    t.name !== selectedAbsent && 
-                    !excludedTeachers.includes(t.name) && 
-                    t.schedule[selectedDay][selectedPeriod] === "" &&
-                    !busySubTeachers.has(t.name) && 
-                    !isConsecutive(t, selectedDay, selectedPeriod)
-                );
+                // [수정] 빈칸이거나 '공강' 글자가 있는 시간이면 보강 가능(free)하다고 판단
+                const freeOnes = teachersMaster.filter(t => {
+                    if (t.name === selectedAbsent || excludedTeachers.includes(t.name) || busySubTeachers.has(t.name)) return false;
+                    const cellContent = t.schedule[selectedDay][selectedPeriod];
+                    const isFree = cellContent === "" || cellContent.includes("공강");
+                    return isFree && !isConsecutive(t, selectedDay, selectedPeriod);
+                });
 
                 const groupA = freeOnes.filter(t => 
                     t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) < minCount + 2
