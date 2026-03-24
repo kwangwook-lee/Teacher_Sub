@@ -28,7 +28,7 @@
         import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
         import {
             UserCheck, Search, AlertCircle, X, ChevronRight, Layout, 
-            Award, Database, CheckCircle2, History, BarChart3, Download, Trash2
+            Award, Database, CheckCircle2, History, BarChart3, Download, Trash2, Clock
         } from 'https://esm.sh/lucide-react@0.292.0';
 
         // ============================================================================
@@ -390,6 +390,21 @@
                 return counts;
             }, [subHistory, selectedSemester]);
 
+            // [추가] 교사의 특정 요일 당일 총 수업 시수 계산 (정규수업 + 확정된 보강 합산)
+            const getDayClassCountLocal = (teacher) => {
+                let count = 0;
+                const s = teacher.schedule[selectedDay];
+                for (let i = 0; i < 7; i++) {
+                    if (s[i] && s[i].trim() !== "" && s[i].trim() !== "-") count++;
+                }
+                subHistory.forEach(h => {
+                    if (h.semester === selectedSemester && h.day === selectedDay && h.subName === teacher.name) {
+                        count++;
+                    }
+                });
+                return count;
+            };
+
             // [핵심] 3연강 원천 차단 함수 (정규수업 + 수락된 보강 + 이번에 배정할 보강까지 모두 시뮬레이션)
             const isConsecutive = (teacher, day, pIdx) => {
                 if (pIdx === -1) return false;
@@ -438,6 +453,14 @@
                     return aName.localeCompare(bName);
                 };
 
+                // [정렬 우선순위 적용] 당일 수업 시수 비교 -> 가나다순 로테이션
+                const sortCandidates = (a, b) => {
+                    const countA = getDayClassCountLocal(a);
+                    const countB = getDayClassCountLocal(b);
+                    if (countA !== countB) return countA - countB; // 오름차순 (수업이 적은 교사 우선)
+                    return nameCompare(a.name, b.name);
+                };
+
                 // 특정 교사 추천 목록 영구 제외
                 const excludedTeachers = ["이정연", "주원석"];
 
@@ -451,19 +474,19 @@
 
                 const groupA = freeOnes.filter(t => 
                     t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) < minCount + 2
-                ).sort((a, b) => nameCompare(a.name, b.name));
+                ).sort(sortCandidates);
 
                 const groupB = freeOnes.filter(t => 
                     t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) >= minCount + 2
-                ).sort((a, b) => nameCompare(a.name, b.name));
+                ).sort(sortCandidates);
 
                 const groupC = freeOnes.filter(t => 
                     t.dept !== absentTeacher.dept && (teacherCounts[t.name] || 0) < minCount + 2
-                ).sort((a, b) => nameCompare(a.name, b.name));
+                ).sort(sortCandidates);
 
                 const groupD = freeOnes.filter(t => 
                     t.dept !== absentTeacher.dept && (teacherCounts[t.name] || 0) >= minCount + 2
-                ).sort((a, b) => (teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0) || nameCompare(a.name, b.name));
+                ).sort((a, b) => (teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0) || sortCandidates(a, b));
 
                 return [...groupA, ...groupB, ...groupC, ...groupD].slice(0, 5);
             }, [selectedAbsent, selectedDay, selectedPeriod, teachersMaster, teacherCounts, subHistory, selectedSemester]);
@@ -574,8 +597,9 @@
                                     <li className="flex gap-2"><span className="text-blue-400">1</span> <div><b className="text-slate-200">3연강 절대 불가</b> (기존+보강 합산)</div></li>
                                     <li className="flex gap-2"><span className="text-blue-400">2</span> <div><b className="text-slate-200">동교과 우선</b> (3연강 제외)</div></li>
                                     <li className="flex gap-2"><span className="text-blue-400">3</span> <div><b className="text-slate-200">타교과 확대</b> (동교과 불가 시)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">4</span> <div><b className="text-slate-200">가나다순 로테이션</b> (직전 배정자 후순위)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">5</span> <div><b className="text-slate-200">형평성 조율</b> (2회 이상 차이 시 후순위)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">4</span> <div><b className="text-slate-200">당일 시수 고려</b> (당일 수업 적은 자)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">5</span> <div><b className="text-slate-200">가나다순 로테이션</b> (직전 배정자 후순위)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">6</span> <div><b className="text-slate-200">형평성 조율</b> (2회 이상 차이 시 후순위)</div></li>
                                 </ul>
                             </div>
 
@@ -687,10 +711,9 @@
                                                                 {t.dept}
                                                             </span>
                                                         </div>
-                                                        <div className="flex items-center gap-1 mt-0.5 text-[11px] font-bold text-slate-400">
-                                                            <span>이번 학기 누적</span>
-                                                            <span className="text-blue-500 mx-1">{teacherCounts[t.name] || 0}</span>
-                                                            <span>회</span>
+                                                        <div className="flex items-center gap-3 mt-1 text-[11px] font-bold text-slate-400">
+                                                            <span className="flex items-center gap-1 text-slate-500"><Clock size={12} /> 당일 {getDayClassCountLocal(t)}시간</span>
+                                                            <span className="flex items-center gap-1"><Award size={12} /> 학기 누적 <span className="text-blue-500">{teacherCounts[t.name] || 0}</span>회</span>
                                                         </div>
                                                     </div>
                                                 </div>
