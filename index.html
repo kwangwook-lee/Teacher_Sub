@@ -28,14 +28,13 @@
         import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
         import {
             UserCheck, Search, AlertCircle, X, ChevronRight, Layout, 
-            Award, Database, CheckCircle2, History, BarChart3, Download, Trash2, Clock
+            Award, Database, CheckCircle2, History, BarChart3, Download, Trash2, Clock, MousePointerClick
         } from 'https://esm.sh/lucide-react@0.292.0';
 
         // ============================================================================
         // [1] 데이터 설정 영역: 아래 백틱(`) 사이에 CSV 파일의 텍스트 내용을 붙여넣으세요.
         // ============================================================================
         
-        // 1. 동교과분류.csv 내용
         const RAW_DEPT_CSV = `과학,안준범
 과학,최정곤
 과학,아원미
@@ -79,7 +78,6 @@
 예술,이동규
 예술,김창훈`;
 
-        // 2. 전체 교사 시간표.csv 내용 (새로 올려주신 교사별 가로형 csv 내용을 여기에 붙여넣으세요)
         const RAW_TIME_CSV = `2026학년도 1학기 전체 교사 시간표,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 연번,성명,월,,,,,,,화,,,,,,,수,,,,,,,목,,,,,,,금,,,,,,
 ,,1,2,3,4,5,6,7,1,2,3,4,5,6,7,1,2,3,4,5,6,7,1,2,3,4,5,6,7,1,2,3,4,5,6,7
@@ -175,39 +173,58 @@
         // ============================================================================
 
 
+        // 오늘 날짜를 YYYY-MM-DD 형식으로 가져오는 유틸리티 함수
+        const getTodayString = () => {
+            const today = new Date();
+            const offset = today.getTimezoneOffset() * 60000;
+            return (new Date(today - offset)).toISOString().split('T')[0];
+        };
+
+        const dayMapKor = { mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토', sun: '일' };
+
         const App = () => {
             const [activeTab, setActiveTab] = useState('register');
             const [teachersMaster, setTeachersMaster] = useState([]);
             const [selectedSemester, setSelectedSemester] = useState("2026-1");
             
-            // 로컬 스토리지에서 누적 기록 불러오기
             const [subHistory, setSubHistory] = useState(() => {
                 const saved = localStorage.getItem('smartSubHistory');
                 return saved ? JSON.parse(saved) : [];
             });
             
-            // UI States
             const [modalTeacher, setModalTeacher] = useState(null);
             const [toastMsg, setToastMsg] = useState(null);
 
             // Input States
             const [selectedAbsent, setSelectedAbsent] = useState("");
-            const [selectedDay, setSelectedDay] = useState("mon");
+            const [selectedDate, setSelectedDate] = useState(getTodayString()); // 달력용 날짜 상태
             const [selectedPeriod, setSelectedPeriod] = useState(0);
-
-            // 통계 보기 모드 상태 추가
+            const [manualSelectedTeacher, setManualSelectedTeacher] = useState("");
             const [statsView, setStatsView] = useState('name');
 
-            // --- 선택된 교사의 요일별 실제 수업 교시 계산 로직 ---
+            // 날짜에서 요일을 자동 추출하는 핵심 로직
+            const selectedDay = useMemo(() => {
+                if (!selectedDate) return "";
+                const dayIndex = new Date(selectedDate).getDay();
+                const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+                return days[dayIndex];
+            }, [selectedDate]);
+
+            useEffect(() => {
+                setManualSelectedTeacher("");
+            }, [selectedAbsent, selectedDate, selectedPeriod]);
+
+            // 선택된 요일에 따른 해당 교사의 실제 수업 교시 계산
             const availablePeriods = useMemo(() => {
-                if (!selectedAbsent || teachersMaster.length === 0) return [0, 1, 2, 3, 4, 5, 6];
+                if (!selectedAbsent || teachersMaster.length === 0 || !selectedDay) return [0, 1, 2, 3, 4, 5, 6];
                 const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
                 if (!absentTeacher) return [0, 1, 2, 3, 4, 5, 6];
                 
                 const daySchedule = absentTeacher.schedule[selectedDay];
+                if (!daySchedule) return []; // 주말 예외 처리
+                
                 const periods = [];
                 for (let i = 0; i < 7; i++) {
-                    // 빈칸이 아니면 (공강 포함) 모두 수업이 있는 것으로 인정
                     if (daySchedule[i] && daySchedule[i].trim() !== "" && daySchedule[i].trim() !== "-") {
                         periods.push(i);
                     }
@@ -215,13 +232,12 @@
                 return periods;
             }, [selectedAbsent, selectedDay, teachersMaster]);
 
-            // 요일이나 결강교사가 바뀔 때 자동 교시 설정
             useEffect(() => {
                 if (selectedAbsent) {
                     if (availablePeriods.length > 0) {
                         setSelectedPeriod((prev) => availablePeriods.includes(prev) ? prev : availablePeriods[0]);
                     } else {
-                        setSelectedPeriod(-1); // 수업이 없는 날
+                        setSelectedPeriod(-1);
                     }
                 }
             }, [availablePeriods, selectedAbsent]);
@@ -231,12 +247,10 @@
                 setTimeout(() => setToastMsg(null), 3000);
             };
 
-            // 누적 기록 자동 저장
             useEffect(() => {
                 localStorage.setItem('smartSubHistory', JSON.stringify(subHistory));
             }, [subHistory]);
 
-            // 안전한 CSV 라인 파서 (쌍따옴표 내 콤마 무시 처리)
             const parseCSVLine = (text) => {
                 const result = [];
                 let current = '';
@@ -256,13 +270,11 @@
                 return result.map(s => s.trim());
             };
 
-            // 앱 시작 시 CSV 텍스트 강력 파싱 (새로운 '교사별 가로형' 데이터 양식)
             useEffect(() => {
                 try {
                     const teachersObj = {};
                     const deptMap = new Map();
 
-                    // 1. 동교과 분류 파싱
                     RAW_DEPT_CSV.replace(/^\uFEFF/, '').split(/\r?\n/).forEach(line => {
                         if (line.trim() === "") return;
                         const parts = parseCSVLine(line);
@@ -287,11 +299,9 @@
                         }
                     });
 
-                    // 2. 전체 교사 시간표 파싱
                     const timeCsvClean = RAW_TIME_CSV.replace(/^\uFEFF/, '').replace(/"/g, '');
                     const rows = timeCsvClean.split(/\r?\n/).map(r => parseCSVLine(r));
 
-                    // 데이터 시작 행 자동 찾기
                     let startRow = 3;
                     for (let i = 0; i < rows.length; i++) {
                         if (rows[i] && rows[i][0] === "1" && rows[i][1]) {
@@ -300,7 +310,6 @@
                         }
                     }
 
-                    // 선생님 1명당 과목줄(홀수)과 반줄(짝수) 2줄씩 차지하므로 2칸씩 뜀
                     for (let i = startRow; i < rows.length - 1; i += 2) {
                         const subjectRow = rows[i];
                         const classRow = rows[i + 1];
@@ -310,12 +319,10 @@
                         const rawName = subjectRow[1] ? subjectRow[1].trim() : "";
                         if (!rawName || rawName === "성명") continue;
 
-                        // 이름 정제
                         const nameMatch = rawName.match(/^[가-힣]+/);
                         const tName = nameMatch ? nameMatch[0] : rawName.split(/[\s\(\-]/)[0];
 
                         if (tName && tName.length >= 2) {
-                            // 명단에 없다면 임시 생성
                             if (!teachersObj[tName]) {
                                 teachersObj[tName] = {
                                     id: Object.keys(teachersObj).length + 1,
@@ -332,7 +339,7 @@
                             }
 
                             const days = ['mon', 'tue', 'wed', 'thu', 'fri'];
-                            let colIdx = 2; // 엑셀에서 월요일 1교시는 C열(인덱스 2)부터 시작
+                            let colIdx = 2; 
 
                             for (let d = 0; d < 5; d++) {
                                 const dayKey = days[d];
@@ -340,7 +347,6 @@
                                     const subject = subjectRow[colIdx] ? subjectRow[colIdx].trim() : "";
                                     const className = classRow && classRow[colIdx] ? classRow[colIdx].trim() : "";
 
-                                    // 빈칸이 아니면 모두 수업으로 인정 (공강 포함)
                                     if (subject && subject !== "-") {
                                         const classPrefix = className ? `${className} ` : "";
                                         teachersObj[tName].schedule[dayKey][p] = `${classPrefix}${subject}`.trim();
@@ -366,36 +372,40 @@
                 return counts;
             }, [subHistory, selectedSemester]);
 
-            // [수정] 교사의 특정 요일 당일 총 수업 시수 계산 (공강도 수업으로 합산)
+            // 당일 수업 시수 계산 (정확한 Date 기반으로 필터링 수정)
             const getDayClassCountLocal = (teacher) => {
                 let count = 0;
                 const s = teacher.schedule[selectedDay];
-                for (let i = 0; i < 7; i++) {
-                    if (s[i] && s[i].trim() !== "" && s[i].trim() !== "-") count++;
+                if (s) {
+                    for (let i = 0; i < 7; i++) {
+                        if (s[i] && s[i].trim() !== "" && s[i].trim() !== "-") count++;
+                    }
                 }
                 subHistory.forEach(h => {
-                    if (h.semester === selectedSemester && h.day === selectedDay && h.subName === teacher.name) {
+                    if (h.semester === selectedSemester && h.date === selectedDate && h.subName === teacher.name) {
                         count++;
                     }
                 });
                 return count;
             };
 
-            // [수정] 3연강 원천 차단 함수 (공강도 연강 카운트에 포함)
+            // 3연강 원천 차단 함수 (정확한 Date 기반)
             const isConsecutive = (teacher, day, pIdx) => {
                 if (pIdx === -1) return false;
                 
-                const effectiveSchedule = [...teacher.schedule[day]];
+                const s = teacher.schedule[day];
+                if (!s) return false; // 주말 방어코드
+
+                const effectiveSchedule = [...s];
                 
                 subHistory.forEach(h => {
-                    if (h.semester === selectedSemester && h.day === day && h.subName === teacher.name) {
+                    if (h.semester === selectedSemester && h.date === selectedDate && h.subName === teacher.name) {
                         effectiveSchedule[h.period - 1] = "보강";
                     }
                 });
 
                 effectiveSchedule[pIdx] = "보강";
 
-                // 빈칸이 아니면 수업으로 간주
                 const hasClass = (content) => {
                     return content !== "" && content !== undefined && content !== "-";
                 };
@@ -408,16 +418,20 @@
                 return false; 
             };
 
-            const topCandidates = useMemo(() => {
-                if (!selectedAbsent || teachersMaster.length === 0 || selectedPeriod === -1) return [];
-                const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
-                if (!absentTeacher) return [];
-
-                const busySubTeachers = new Set(
+            // 선택된 날짜와 교시에 이미 다른 보강으로 바쁜 교사 목록
+            const busySubTeachers = useMemo(() => {
+                return new Set(
                     subHistory
-                        .filter(h => h.semester === selectedSemester && h.day === selectedDay && h.period === selectedPeriod + 1)
+                        .filter(h => h.semester === selectedSemester && h.date === selectedDate && h.period === selectedPeriod + 1)
                         .map(h => h.subName)
                 );
+            }, [subHistory, selectedSemester, selectedDate, selectedPeriod]);
+
+            // AI 추천 TOP 5 교사 계산
+            const topCandidates = useMemo(() => {
+                if (!selectedAbsent || teachersMaster.length === 0 || selectedPeriod === -1 || !selectedDay) return [];
+                const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
+                if (!absentTeacher) return [];
 
                 const activeTeacherCounts = teachersMaster.map(t => teacherCounts[t.name] || 0);
                 const minCount = activeTeacherCounts.length > 0 ? Math.min(...activeTeacherCounts) : 0;
@@ -434,20 +448,19 @@
                     return aName.localeCompare(bName);
                 };
 
-                // [정렬 우선순위 적용] 당일 수업 시수 비교 -> 가나다순 로테이션
                 const sortCandidates = (a, b) => {
                     const countA = getDayClassCountLocal(a);
                     const countB = getDayClassCountLocal(b);
-                    if (countA !== countB) return countA - countB; // 오름차순 (수업이 적은 교사 우선)
+                    if (countA !== countB) return countA - countB; 
                     return nameCompare(a.name, b.name);
                 };
 
-                // 특정 교사 추천 목록 영구 제외
                 const excludedTeachers = ["이정연", "주원석"];
 
-                // [수정] 정말로 빈칸인 경우에만 보강 가능(free)하다고 판단 (공강은 수업으로 취급)
                 const freeOnes = teachersMaster.filter(t => {
                     if (t.name === selectedAbsent || excludedTeachers.includes(t.name) || busySubTeachers.has(t.name)) return false;
+                    if (!t.schedule[selectedDay]) return false; // 주말 등 데이터 없는 요일
+                    
                     const cellContent = t.schedule[selectedDay][selectedPeriod];
                     const isFree = cellContent === "" || cellContent === "-"; 
                     return isFree && !isConsecutive(t, selectedDay, selectedPeriod);
@@ -470,36 +483,50 @@
                 ).sort((a, b) => (teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0) || sortCandidates(a, b));
 
                 return [...groupA, ...groupB, ...groupC, ...groupD].slice(0, 5);
-            }, [selectedAbsent, selectedDay, selectedPeriod, teachersMaster, teacherCounts, subHistory, selectedSemester]);
+            }, [selectedAbsent, selectedDay, selectedDate, selectedPeriod, teachersMaster, teacherCounts, subHistory, selectedSemester, busySubTeachers]);
 
+            // 수동 임의 배정 가능한 교사 목록 계산 (빈 시간 교사 전체)
+            const manualCandidates = useMemo(() => {
+                if (!selectedAbsent || teachersMaster.length === 0 || selectedPeriod === -1 || !selectedDay) return [];
+                return teachersMaster.filter(t => {
+                    if (t.name === selectedAbsent || busySubTeachers.has(t.name)) return false;
+                    if (!t.schedule[selectedDay]) return false; 
+                    const cellContent = t.schedule[selectedDay][selectedPeriod];
+                    return cellContent === "" || cellContent === "-"; 
+                }).sort((a, b) => a.name.localeCompare(b.name));
+            }, [selectedAbsent, selectedDay, selectedDate, selectedPeriod, teachersMaster, busySubTeachers]);
+
+            // 이미 해당 날짜/교시에 배정되었는지 확인
             const existingSub = useMemo(() => {
-                if (!selectedAbsent || selectedPeriod === -1) return null;
+                if (!selectedAbsent || selectedPeriod === -1 || !selectedDate) return null;
                 return subHistory.find(h =>
                     h.semester === selectedSemester &&
                     h.absentName === selectedAbsent &&
-                    h.day === selectedDay &&
+                    h.date === selectedDate &&
                     h.period === selectedPeriod + 1
                 );
-            }, [subHistory, selectedSemester, selectedAbsent, selectedDay, selectedPeriod]);
+            }, [subHistory, selectedSemester, selectedAbsent, selectedDate, selectedPeriod]);
 
+            // 보강 확정 저장
             const handleSubConfirm = (teacher) => {
                 const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
                 const newRecord = {
                     id: Date.now().toString(),
                     semester: selectedSemester,
-                    date: new Date().toLocaleDateString('ko-KR'),
+                    date: selectedDate, // 이제 달력에서 선택한 정확한 날짜가 기록됩니다!
                     day: selectedDay,
                     period: selectedPeriod + 1,
                     absentName: selectedAbsent,
                     absentDept: absentTeacher.dept,
                     subName: teacher.name,
                     subDept: teacher.dept,
-                    classInfo: absentTeacher.schedule[selectedDay][selectedPeriod] || "기타 배정",
+                    classInfo: absentTeacher.schedule[selectedDay]?.[selectedPeriod] || "기타 배정",
                     timestamp: Date.now()
                 };
                 
                 setSubHistory(prev => [newRecord, ...prev]);
                 setModalTeacher(null);
+                setManualSelectedTeacher("");
                 showToast(`${teacher.name} 선생님으로 보강이 확정 및 저장되었습니다.`);
             };
 
@@ -520,7 +547,7 @@
                 let csvContent = "--- 상세 보강 내역 ---\n";
                 csvContent += "날짜,요일,교시,결강교사,결강과목,보강담당교사,보강교사 총누적횟수,학기\n";
                 csvContent += currentData.map(h => 
-                    `"${h.date}","${h.day}","${h.period}교시","${h.absentName}","${h.classInfo}","${h.subName}","${teacherCounts[h.subName] || 0}회","${h.semester}"`
+                    `"${h.date}","${dayMapKor[h.day] || h.day}요일","${h.period}교시","${h.absentName}","${h.classInfo}","${h.subName}","${teacherCounts[h.subName] || 0}회","${h.semester}"`
                 ).join("\n");
                 
                 csvContent += "\n\n\n--- 교사별 누적 보강 횟수 총괄표 ---\n";
@@ -614,14 +641,18 @@
                                             </select>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3 md:col-span-2">
+                                            {/* 달력 선택으로 변경된 UI */}
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">요일</label>
-                                                <select className="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold" value={selectedDay} onChange={e => setSelectedDay(e.target.value)}>
-                                                    <option value="mon">월요일</option><option value="tue">화요일</option><option value="wed">수요일</option><option value="thu">목요일</option><option value="fri">금요일</option>
-                                                </select>
+                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">결강 일자 (달력)</label>
+                                                <input 
+                                                    type="date"
+                                                    className="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700"
+                                                    value={selectedDate}
+                                                    onChange={e => setSelectedDate(e.target.value)}
+                                                />
                                             </div>
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">교시</label>
+                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">교시 <span className="text-blue-500 font-black">({dayMapKor[selectedDay] || '-'}요일)</span></label>
                                                 <select className="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold" value={selectedPeriod} onChange={e => setSelectedPeriod(parseInt(e.target.value))} disabled={selectedAbsent !== "" && availablePeriods.length === 0}>
                                                     {selectedAbsent === "" ? (
                                                         [0,1,2,3,4,5,6].map(i => <option key={i} value={i}>{i+1}교시</option>)
@@ -630,8 +661,8 @@
                                                     ) : (
                                                         availablePeriods.map(i => {
                                                             const t = teachersMaster.find(t => t.name === selectedAbsent);
-                                                            const className = t ? t.schedule[selectedDay][i] : '';
-                                                            const isAssigned = subHistory.some(h => h.semester === selectedSemester && h.absentName === selectedAbsent && h.day === selectedDay && h.period === i + 1);
+                                                            const className = t ? t.schedule[selectedDay]?.[i] : '';
+                                                            const isAssigned = subHistory.some(h => h.semester === selectedSemester && h.absentName === selectedAbsent && h.date === selectedDate && h.period === i + 1);
                                                             return <option key={i} value={i}>{i+1}교시 ({className}){isAssigned ? ' - [배정완료]' : ''}</option>;
                                                         })
                                                     )}
@@ -641,7 +672,7 @@
                                     </div>
 
                                     {/* 후보자 목록 간격 축소 */}
-                                    <div className="space-y-2.5">
+                                    <div className="space-y-2.5 relative">
                                         <h3 className="text-base font-black text-slate-800 flex items-center gap-2 px-1">
                                             <Award size={18} className="text-blue-600" /> 공정 추천 후보 TOP 5
                                         </h3>
@@ -659,8 +690,8 @@
                                         ) : selectedPeriod === -1 ? (
                                             <div className="bg-slate-50 p-8 md:p-12 rounded-2xl border border-slate-200 text-center">
                                                 <Layout size={36} className="mx-auto mb-3 text-slate-300" />
-                                                <p className="text-slate-600 font-black text-base">해당 요일에는 수업이 없습니다.</p>
-                                                <p className="text-xs text-slate-400 mt-1 font-medium">결강 교사의 다른 요일을 선택해주세요.</p>
+                                                <p className="text-slate-600 font-black text-base">선택하신 날짜({dayMapKor[selectedDay] || '-'}요일)에는 수업이 없습니다.</p>
+                                                <p className="text-xs text-slate-400 mt-1 font-medium">달력에서 결강 교사의 다른 날짜를 선택해주세요.</p>
                                             </div>
                                         ) : existingSub ? (
                                             <div className="bg-green-50 p-8 md:p-12 rounded-2xl border border-green-200 text-center">
@@ -670,10 +701,10 @@
                                                 <p className="text-xs text-green-600 mt-1 font-medium">수정을 원하시면 [누적 기록부]에서 해당 기록을 삭제해주세요.</p>
                                             </div>
                                         ) : topCandidates.length === 0 ? (
-                                            <div className="bg-orange-50 p-8 md:p-12 rounded-2xl border border-orange-100 text-center">
-                                                <AlertCircle size={36} className="mx-auto mb-3 text-orange-400" />
-                                                <p className="text-orange-700 font-black text-lg">보강 가능한 교사가 없습니다.</p>
-                                                <p className="text-xs text-orange-500 mt-1 font-medium">모든 교사가 수업 중이거나 3연강 제한에 해당됩니다.</p>
+                                            <div className="bg-orange-50 p-8 md:p-10 rounded-2xl border border-orange-100 text-center">
+                                                <AlertCircle size={36} className="mx-auto mb-2 text-orange-400" />
+                                                <p className="text-orange-700 font-black text-base">추천 가능한 교사가 없습니다.</p>
+                                                <p className="text-[11px] text-orange-500 mt-1 font-medium">모든 교사가 수업 중이거나 3연강 제한에 해당됩니다.</p>
                                             </div>
                                         ) : topCandidates.map((t, idx) => (
                                             <button 
@@ -704,6 +735,42 @@
                                             </button>
                                         ))}
                                     </div>
+
+                                    {/* 수동 임의 배정 영역 */}
+                                    {selectedAbsent && selectedPeriod !== -1 && !existingSub && teachersMaster.length > 0 && selectedDay && (
+                                        <div className="mt-4 pt-5 border-t border-slate-200/60 animate-in fade-in">
+                                            <h3 className="text-[13px] font-black text-slate-600 flex items-center gap-1.5 px-1 mb-2.5">
+                                                <MousePointerClick size={16} className="text-slate-400" /> 수동 임의 배정 <span className="text-[10px] text-slate-400 font-medium ml-1">(빈 시간 교사 전체)</span>
+                                            </h3>
+                                            <div className="flex gap-2">
+                                                <select 
+                                                    className="flex-1 p-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300 font-bold shadow-sm"
+                                                    value={manualSelectedTeacher}
+                                                    onChange={e => setManualSelectedTeacher(e.target.value)}
+                                                >
+                                                    <option value="">교사 직접 선택 (이름 가나다순)...</option>
+                                                    {manualCandidates.map(t => {
+                                                        const isWarning = isConsecutive(t, selectedDay, selectedPeriod);
+                                                        return (
+                                                            <option key={t.id} value={t.name}>
+                                                                {t.name} ({t.dept}) - 당일 {getDayClassCountLocal(t)}시간 {isWarning ? ' [⚠️3연강 주의]' : ''}
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+                                                <button 
+                                                    disabled={!manualSelectedTeacher}
+                                                    onClick={() => {
+                                                        const t = teachersMaster.find(x => x.name === manualSelectedTeacher);
+                                                        if(t) setModalTeacher(t);
+                                                    }}
+                                                    className="px-5 py-3 bg-slate-800 text-white font-bold rounded-xl shadow-md hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition-all text-sm whitespace-nowrap"
+                                                >
+                                                    선택
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -743,7 +810,7 @@
                                                         <tr key={h.id} className="hover:bg-slate-50/80 transition-colors">
                                                             <td className="px-5 py-3.5">
                                                                 <p className="font-bold text-slate-700">{h.date}</p>
-                                                                <p className="text-[10px] text-slate-400 font-bold mt-0.5 uppercase bg-slate-100 inline-block px-1.5 rounded-sm">{h.day} {h.period}교시</p>
+                                                                <p className="text-[10px] text-slate-400 font-bold mt-0.5 bg-slate-100 inline-block px-1.5 rounded-sm">{dayMapKor[h.day] || h.day}요일 {h.period}교시</p>
                                                             </td>
                                                             <td className="px-5 py-3.5">
                                                                 <div className="flex items-center gap-1.5">
@@ -891,7 +958,7 @@
                                         <table className="w-full text-[10px] md:text-xs">
                                             <thead>
                                                 <tr className="text-slate-400 font-bold border-b border-slate-200 uppercase">
-                                                    <th className="py-2">교시</th>{['월','화','수','목','금'].map(d => <th key={d}>{d}</th>)}
+                                                    <th className="py-2">교시</th>{['월','화','수','목','금'].map(d => <th key={d}>{dayMapKor[d]}</th>)}
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
