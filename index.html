@@ -1,11 +1,9 @@
-HTML
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>지능형 보강 관리 시스템 Pro</title>
-    
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
@@ -19,30 +17,45 @@ HTML
             100% { transform: translate(-50%, 100%); opacity: 0; }
         }
         .toast-animate { animation: slideUpFade 3s ease-in-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .fade-in { animation: fadeIn 0.4s ease; }
+        @keyframes slideUp { from { transform: translateY(2rem); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .slide-up { animation: slideUp 0.3s ease; }
     </style>
-
-    <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <script src="https://unpkg.com/lucide-react@0.292.0/dist/umd/lucide-react.min.js"></script>
 </head>
 <body>
     <div id="root"></div>
 
+    <script src="https://unpkg.com/react@18.2.0/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.2/babel.min.js"></script>
+
     <script type="text/babel">
-        // 5. import 에러를 피하기 위해, 로드된 전역 객체에서 필요한 기능을 바로 꺼내 씁니다.
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useCallback } = React;
         const { createRoot } = ReactDOM;
-        const {
-            UserCheck, Search, AlertCircle, X, ChevronRight, Layout, 
-            Award, Database, CheckCircle2, History, BarChart3, Download, Trash2, Clock, MousePointerClick
-        } = lucideReact;
+
+        // lucide-react UMD 전역 변수 안전 접근
+        const LR = window.lucideReact || {};
+        const UserCheck       = LR.UserCheck       || (() => null);
+        const Search          = LR.Search          || (() => null);
+        const AlertCircle     = LR.AlertCircle     || (() => null);
+        const X               = LR.X               || (() => null);
+        const ChevronRight    = LR.ChevronRight    || (() => null);
+        const Layout          = LR.Layout          || (() => null);
+        const Award           = LR.Award           || (() => null);
+        const Database        = LR.Database        || (() => null);
+        const CheckCircle2    = LR.CheckCircle2    || (() => null);
+        const History         = LR.History         || (() => null);
+        const BarChart3       = LR.BarChart3       || (() => null);
+        const Download        = LR.Download        || (() => null);
+        const Trash2          = LR.Trash2          || (() => null);
+        const Clock           = LR.Clock           || (() => null);
+        const MousePointerClick = LR.MousePointerClick || (() => null);
 
         // ============================================================================
-        // [1] 데이터 설정 영역: 아래 백틱(`) 사이에 CSV 파일의 텍스트 내용을 붙여넣으세요.
+        // [1] 데이터 설정 영역
         // ============================================================================
-        
         const RAW_DEPT_CSV = `과학,안준범
 과학,최정곤
 과학,아원미
@@ -180,331 +193,281 @@ HTML
 `;
         // ============================================================================
 
+        const DAY_KOR = { mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토', sun: '일' };
+        const DAYS_EN = ['mon', 'tue', 'wed', 'thu', 'fri'];
+        const DAYS_KOR_LIST = ['월', '화', '수', '목', '금'];
+        const EXCLUDED_TEACHERS = ['이정연', '주원석'];
 
-        // 오늘 날짜를 YYYY-MM-DD 형식으로 가져오는 유틸리티 함수
         const getTodayString = () => {
             const today = new Date();
             const offset = today.getTimezoneOffset() * 60000;
             return (new Date(today - offset)).toISOString().split('T')[0];
         };
 
-        const dayMapKor = { mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토', sun: '일' };
+        // 컴포넌트 외부로 이동 (매 렌더마다 재생성 방지)
+        const parseCSVLine = (text) => {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < text.length; i++) {
+                const c = text[i];
+                if (c === '"') {
+                    inQuotes = !inQuotes;
+                } else if (c === ',' && !inQuotes) {
+                    result.push(current);
+                    current = '';
+                } else {
+                    current += c;
+                }
+            }
+            result.push(current);
+            return result.map(s => s.trim());
+        };
+
+        const makeEmptySchedule = () => ({
+            mon: ['','','','','','',''],
+            tue: ['','','','','','',''],
+            wed: ['','','','','','',''],
+            thu: ['','','','','','',''],
+            fri: ['','','','','','',''],
+        });
 
         const App = () => {
             const [activeTab, setActiveTab] = useState('register');
             const [teachersMaster, setTeachersMaster] = useState([]);
-            const [selectedSemester, setSelectedSemester] = useState("2026-1");
-            
+            const [selectedSemester, setSelectedSemester] = useState('2026-1');
             const [subHistory, setSubHistory] = useState(() => {
-                const saved = localStorage.getItem('smartSubHistory');
-                return saved ? JSON.parse(saved) : [];
+                try {
+                    const saved = localStorage.getItem('smartSubHistory');
+                    return saved ? JSON.parse(saved) : [];
+                } catch { return []; }
             });
-            
             const [modalTeacher, setModalTeacher] = useState(null);
             const [toastMsg, setToastMsg] = useState(null);
-
-            // Input States
-            const [selectedAbsent, setSelectedAbsent] = useState("");
-            const [selectedDate, setSelectedDate] = useState(getTodayString()); // 달력용 날짜 상태
+            const [selectedAbsent, setSelectedAbsent] = useState('');
+            const [selectedDate, setSelectedDate] = useState(getTodayString());
             const [selectedPeriod, setSelectedPeriod] = useState(0);
-            const [manualSelectedTeacher, setManualSelectedTeacher] = useState("");
+            const [manualSelectedTeacher, setManualSelectedTeacher] = useState('');
             const [statsView, setStatsView] = useState('name');
 
-            // 날짜에서 요일을 자동 추출하는 핵심 로직
+            // 날짜 → 요일 자동 추출
             const selectedDay = useMemo(() => {
-                if (!selectedDate) return "";
-                const dayIndex = new Date(selectedDate).getDay();
-                const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
-                return days[dayIndex];
+                if (!selectedDate) return '';
+                const idx = new Date(selectedDate).getDay();
+                return ['sun','mon','tue','wed','thu','fri','sat'][idx];
             }, [selectedDate]);
 
             useEffect(() => {
-                setManualSelectedTeacher("");
+                setManualSelectedTeacher('');
             }, [selectedAbsent, selectedDate, selectedPeriod]);
 
-            // 선택된 요일에 따른 해당 교사의 실제 수업 교시 계산
+            // 결강 교사의 해당 요일 수업 교시 목록
             const availablePeriods = useMemo(() => {
-                if (!selectedAbsent || teachersMaster.length === 0 || !selectedDay) return [0, 1, 2, 3, 4, 5, 6];
-                const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
-                if (!absentTeacher) return [0, 1, 2, 3, 4, 5, 6];
-                
-                const daySchedule = absentTeacher.schedule[selectedDay];
-                if (!daySchedule) return []; // 주말 예외 처리
-                
+                if (!selectedAbsent || teachersMaster.length === 0 || !selectedDay) return [0,1,2,3,4,5,6];
+                const teacher = teachersMaster.find(t => t.name === selectedAbsent);
+                if (!teacher || !teacher.schedule[selectedDay]) return [];
                 const periods = [];
                 for (let i = 0; i < 7; i++) {
-                    if (daySchedule[i] && daySchedule[i].trim() !== "" && daySchedule[i].trim() !== "-") {
-                        periods.push(i);
-                    }
+                    const cell = teacher.schedule[selectedDay][i];
+                    if (cell && cell.trim() !== '' && cell.trim() !== '-') periods.push(i);
                 }
                 return periods;
             }, [selectedAbsent, selectedDay, teachersMaster]);
 
             useEffect(() => {
-                if (selectedAbsent) {
-                    if (availablePeriods.length > 0) {
-                        setSelectedPeriod((prev) => availablePeriods.includes(prev) ? prev : availablePeriods[0]);
-                    } else {
-                        setSelectedPeriod(-1);
-                    }
+                if (!selectedAbsent) return;
+                if (availablePeriods.length > 0) {
+                    setSelectedPeriod(prev => availablePeriods.includes(prev) ? prev : availablePeriods[0]);
+                } else {
+                    setSelectedPeriod(-1);
                 }
             }, [availablePeriods, selectedAbsent]);
 
-            const showToast = (msg) => {
+            const showToast = useCallback((msg) => {
                 setToastMsg(msg);
                 setTimeout(() => setToastMsg(null), 3000);
-            };
+            }, []);
 
             useEffect(() => {
-                localStorage.setItem('smartSubHistory', JSON.stringify(subHistory));
+                try { localStorage.setItem('smartSubHistory', JSON.stringify(subHistory)); }
+                catch { /* localStorage 사용 불가 환경 무시 */ }
             }, [subHistory]);
 
-            const parseCSVLine = (text) => {
-                const result = [];
-                let current = '';
-                let inQuotes = false;
-                for (let i = 0; i < text.length; i++) {
-                    const c = text[i];
-                    if (c === '"') {
-                        inQuotes = !inQuotes;
-                    } else if (c === ',' && !inQuotes) {
-                        result.push(current);
-                        current = '';
-                    } else {
-                        current += c;
-                    }
-                }
-                result.push(current);
-                return result.map(s => s.trim());
-            };
-
+            // CSV 파싱 및 교사 데이터 초기화
             useEffect(() => {
                 try {
                     const teachersObj = {};
                     const deptMap = new Map();
 
-                    RAW_DEPT_CSV.replace(/^\uFEFF/, '').split(/\r?\n/).forEach(line => {
-                        if (line.trim() === "") return;
+                    RAW_DEPT_CSV.replace(/^﻿/, '').split(/\r?\n/).forEach(line => {
+                        if (!line.trim()) return;
                         const parts = parseCSVLine(line);
-                        if (parts.length >= 2) {
-                            const dept = parts[0];
-                            const name = parts[1];
-                            if(dept && name) {
-                                deptMap.set(name, dept);
-                                teachersObj[name] = {
-                                    id: name,
-                                    name: name,
-                                    dept: dept,
-                                    schedule: {
-                                        mon: ["", "", "", "", "", "", ""],
-                                        tue: ["", "", "", "", "", "", ""],
-                                        wed: ["", "", "", "", "", "", ""],
-                                        thu: ["", "", "", "", "", "", ""],
-                                        fri: ["", "", "", "", "", "", ""]
-                                    }
-                                };
-                            }
+                        if (parts.length >= 2 && parts[0] && parts[1]) {
+                            deptMap.set(parts[1], parts[0]);
+                            teachersObj[parts[1]] = {
+                                id: parts[1],
+                                name: parts[1],
+                                dept: parts[0],
+                                schedule: makeEmptySchedule(),
+                            };
                         }
                     });
 
-                    const timeCsvClean = RAW_TIME_CSV.replace(/^\uFEFF/, '').replace(/"/g, '');
-                    const rows = timeCsvClean.split(/\r?\n/).map(r => parseCSVLine(r));
+                    const rows = RAW_TIME_CSV.replace(/^﻿/, '').replace(/"/g, '').split(/\r?\n/).map(r => parseCSVLine(r));
 
                     let startRow = 3;
                     for (let i = 0; i < rows.length; i++) {
-                        if (rows[i] && rows[i][0] === "1" && rows[i][1]) {
-                            startRow = i;
-                            break;
-                        }
+                        if (rows[i] && rows[i][0] === '1' && rows[i][1]) { startRow = i; break; }
                     }
 
                     for (let i = startRow; i < rows.length - 1; i += 2) {
                         const subjectRow = rows[i];
                         const classRow = rows[i + 1];
-
                         if (!subjectRow || subjectRow.length < 2) continue;
 
-                        const rawName = subjectRow[1] ? subjectRow[1].trim() : "";
-                        if (!rawName || rawName === "성명") continue;
+                        const rawName = (subjectRow[1] || '').trim();
+                        if (!rawName || rawName === '성명') continue;
 
                         const nameMatch = rawName.match(/^[가-힣]+/);
-                        const tName = nameMatch ? nameMatch[0] : rawName.split(/[\s\(\-]/)[0];
+                        const tName = nameMatch ? nameMatch[0] : rawName.split(/[\s(-]/)[0];
+                        if (!tName || tName.length < 2) continue;
 
-                        if (tName && tName.length >= 2) {
-                            if (!teachersObj[tName]) {
-                                teachersObj[tName] = {
-                                    id: Object.keys(teachersObj).length + 1,
-                                    name: tName,
-                                    dept: deptMap.get(tName) || '미분류',
-                                    schedule: {
-                                        mon: ["", "", "", "", "", "", ""],
-                                        tue: ["", "", "", "", "", "", ""],
-                                        wed: ["", "", "", "", "", "", ""],
-                                        thu: ["", "", "", "", "", "", ""],
-                                        fri: ["", "", "", "", "", "", ""]
-                                    }
-                                };
-                            }
+                        if (!teachersObj[tName]) {
+                            teachersObj[tName] = {
+                                id: tName,
+                                name: tName,
+                                dept: deptMap.get(tName) || '미분류',
+                                schedule: makeEmptySchedule(),
+                            };
+                        }
 
-                            const days = ['mon', 'tue', 'wed', 'thu', 'fri'];
-                            let colIdx = 2; 
-
-                            for (let d = 0; d < 5; d++) {
-                                const dayKey = days[d];
-                                for (let p = 0; p < 7; p++) {
-                                    const subject = subjectRow[colIdx] ? subjectRow[colIdx].trim() : "";
-                                    const className = classRow && classRow[colIdx] ? classRow[colIdx].trim() : "";
-
-                                    if (subject && subject !== "-") {
-                                        const classPrefix = className ? `${className} ` : "";
-                                        teachersObj[tName].schedule[dayKey][p] = `${classPrefix}${subject}`.trim();
-                                    }
-                                    colIdx++;
+                        let colIdx = 2;
+                        for (let d = 0; d < 5; d++) {
+                            const dayKey = DAYS_EN[d];
+                            for (let p = 0; p < 7; p++) {
+                                const subject = (subjectRow[colIdx] || '').trim();
+                                const cls = classRow && classRow[colIdx] ? classRow[colIdx].trim() : '';
+                                if (subject && subject !== '-') {
+                                    teachersObj[tName].schedule[dayKey][p] = cls ? `${cls} ${subject}` : subject;
                                 }
+                                colIdx++;
                             }
                         }
                     }
                     setTeachersMaster(Object.values(teachersObj));
-                } catch (error) {
-                    console.error("CSV 파싱 오류:", error);
-                    showToast("내장된 CSV 데이터에 오류가 있습니다.");
+                } catch (err) {
+                    console.error('CSV 파싱 오류:', err);
+                    showToast('데이터 파싱 중 오류가 발생했습니다.');
                 }
-            }, []);
+            }, [showToast]);
 
-            // --- 보강 배정 핵심 로직 ---
+            // 학기별 보강 횟수 집계
             const teacherCounts = useMemo(() => {
                 const counts = {};
-                subHistory.filter(s => s.semester === selectedSemester).forEach(s => {
-                    counts[s.subName] = (counts[s.subName] || 0) + 1;
+                subHistory.filter(h => h.semester === selectedSemester).forEach(h => {
+                    counts[h.subName] = (counts[h.subName] || 0) + 1;
                 });
                 return counts;
             }, [subHistory, selectedSemester]);
 
-            // 당일 수업 시수 계산 (정확한 Date 기반으로 필터링 수정)
-            const getDayClassCountLocal = (teacher) => {
+            // 당일 수업 시수 (자체 수업 + 배정된 보강)
+            const getDayClassCount = useCallback((teacher) => {
                 let count = 0;
                 const s = teacher.schedule[selectedDay];
                 if (s) {
                     for (let i = 0; i < 7; i++) {
-                        if (s[i] && s[i].trim() !== "" && s[i].trim() !== "-") count++;
+                        if (s[i] && s[i].trim() !== '' && s[i].trim() !== '-') count++;
                     }
                 }
                 subHistory.forEach(h => {
-                    if (h.semester === selectedSemester && h.date === selectedDate && h.subName === teacher.name) {
-                        count++;
-                    }
+                    if (h.semester === selectedSemester && h.date === selectedDate && h.subName === teacher.name) count++;
                 });
                 return count;
-            };
+            }, [selectedDay, selectedDate, subHistory, selectedSemester]);
 
-            // 3연강 원천 차단 함수 (정확한 Date 기반)
-            const isConsecutive = (teacher, day, pIdx) => {
+            // 3연강 여부 확인
+            const isConsecutive = useCallback((teacher, day, pIdx) => {
                 if (pIdx === -1) return false;
-                
                 const s = teacher.schedule[day];
-                if (!s) return false; // 주말 방어코드
-
-                const effectiveSchedule = [...s];
-                
+                if (!s) return false;
+                const eff = [...s];
                 subHistory.forEach(h => {
                     if (h.semester === selectedSemester && h.date === selectedDate && h.subName === teacher.name) {
-                        effectiveSchedule[h.period - 1] = "보강";
+                        eff[h.period - 1] = '보강';
                     }
                 });
-
-                effectiveSchedule[pIdx] = "보강";
-
-                const hasClass = (content) => {
-                    return content !== "" && content !== undefined && content !== "-";
-                };
-
+                eff[pIdx] = '보강';
+                const hasClass = c => c && c !== '' && c !== '-';
                 for (let i = 0; i <= 4; i++) {
-                    if (hasClass(effectiveSchedule[i]) && hasClass(effectiveSchedule[i+1]) && hasClass(effectiveSchedule[i+2])) {
-                        return true;
-                    }
+                    if (hasClass(eff[i]) && hasClass(eff[i+1]) && hasClass(eff[i+2])) return true;
                 }
-                return false; 
-            };
+                return false;
+            }, [subHistory, selectedSemester, selectedDate]);
 
-            // 선택된 날짜와 교시에 이미 다른 보강으로 바쁜 교사 목록
-            const busySubTeachers = useMemo(() => {
-                return new Set(
-                    subHistory
-                        .filter(h => h.semester === selectedSemester && h.date === selectedDate && h.period === selectedPeriod + 1)
-                        .map(h => h.subName)
-                );
-            }, [subHistory, selectedSemester, selectedDate, selectedPeriod]);
+            // 해당 날짜·교시에 이미 보강 배정된 교사 목록
+            const busySubTeachers = useMemo(() => new Set(
+                subHistory
+                    .filter(h => h.semester === selectedSemester && h.date === selectedDate && h.period === selectedPeriod + 1)
+                    .map(h => h.subName)
+            ), [subHistory, selectedSemester, selectedDate, selectedPeriod]);
 
-            // AI 추천 TOP 5 교사 계산
+            // AI 추천 TOP 5
             const topCandidates = useMemo(() => {
                 if (!selectedAbsent || teachersMaster.length === 0 || selectedPeriod === -1 || !selectedDay) return [];
                 const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
                 if (!absentTeacher) return [];
 
-                const activeTeacherCounts = teachersMaster.map(t => teacherCounts[t.name] || 0);
-                const minCount = activeTeacherCounts.length > 0 ? Math.min(...activeTeacherCounts) : 0;
+                const allCounts = teachersMaster.map(t => teacherCounts[t.name] || 0);
+                const minCount = allCounts.length > 0 ? Math.min(...allCounts) : 0;
 
-                const currentSemesterHistory = subHistory.filter(h => h.semester === selectedSemester);
-                const lastDeptHistory = currentSemesterHistory.find(h => h.subDept === absentTeacher.dept);
-                const lastAssignedName = lastDeptHistory ? lastDeptHistory.subName : (currentSemesterHistory[0]?.subName || "");
+                const semHistory = subHistory.filter(h => h.semester === selectedSemester);
+                const lastDeptSub = semHistory.find(h => h.subDept === absentTeacher.dept);
+                const lastAssigned = lastDeptSub ? lastDeptSub.subName : (semHistory[0]?.subName || '');
 
-                const nameCompare = (aName, bName) => {
-                    if (!lastAssignedName) return aName.localeCompare(bName);
-                    const aWrapped = aName <= lastAssignedName;
-                    const bWrapped = bName <= lastAssignedName;
-                    if (aWrapped !== bWrapped) return aWrapped ? 1 : -1;
-                    return aName.localeCompare(bName);
+                const nameCompare = (a, b) => {
+                    if (!lastAssigned) return a.localeCompare(b);
+                    const aWrap = a <= lastAssigned;
+                    const bWrap = b <= lastAssigned;
+                    if (aWrap !== bWrap) return aWrap ? 1 : -1;
+                    return a.localeCompare(b);
                 };
 
-                const sortCandidates = (a, b) => {
-                    const countA = getDayClassCountLocal(a);
-                    const countB = getDayClassCountLocal(b);
-                    if (countA !== countB) return countA - countB; 
-                    return nameCompare(a.name, b.name);
+                const sortFn = (a, b) => {
+                    const diff = getDayClassCount(a) - getDayClassCount(b);
+                    return diff !== 0 ? diff : nameCompare(a.name, b.name);
                 };
 
-                const excludedTeachers = ["이정연", "주원석"];
-
-                const freeOnes = teachersMaster.filter(t => {
-                    if (t.name === selectedAbsent || excludedTeachers.includes(t.name) || busySubTeachers.has(t.name)) return false;
-                    if (!t.schedule[selectedDay]) return false; // 주말 등 데이터 없는 요일
-                    
-                    const cellContent = t.schedule[selectedDay][selectedPeriod];
-                    const isFree = cellContent === "" || cellContent === "-"; 
-                    return isFree && !isConsecutive(t, selectedDay, selectedPeriod);
+                const free = teachersMaster.filter(t => {
+                    if (t.name === selectedAbsent || EXCLUDED_TEACHERS.includes(t.name) || busySubTeachers.has(t.name)) return false;
+                    if (!t.schedule[selectedDay]) return false;
+                    const cell = t.schedule[selectedDay][selectedPeriod];
+                    return (cell === '' || cell === '-') && !isConsecutive(t, selectedDay, selectedPeriod);
                 });
 
-                const groupA = freeOnes.filter(t => 
-                    t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) < minCount + 2
-                ).sort(sortCandidates);
+                const sameDept  = free.filter(t => t.dept === absentTeacher.dept);
+                const otherDept = free.filter(t => t.dept !== absentTeacher.dept);
 
-                const groupB = freeOnes.filter(t => 
-                    t.dept === absentTeacher.dept && (teacherCounts[t.name] || 0) >= minCount + 2
-                ).sort(sortCandidates);
-
-                const groupC = freeOnes.filter(t => 
-                    t.dept !== absentTeacher.dept && (teacherCounts[t.name] || 0) < minCount + 2
-                ).sort(sortCandidates);
-
-                const groupD = freeOnes.filter(t => 
-                    t.dept !== absentTeacher.dept && (teacherCounts[t.name] || 0) >= minCount + 2
-                ).sort((a, b) => (teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0) || sortCandidates(a, b));
+                const groupA = sameDept.filter(t => (teacherCounts[t.name] || 0) < minCount + 2).sort(sortFn);
+                const groupB = sameDept.filter(t => (teacherCounts[t.name] || 0) >= minCount + 2).sort(sortFn);
+                const groupC = otherDept.filter(t => (teacherCounts[t.name] || 0) < minCount + 2).sort(sortFn);
+                const groupD = otherDept.filter(t => (teacherCounts[t.name] || 0) >= minCount + 2)
+                    .sort((a, b) => ((teacherCounts[a.name] || 0) - (teacherCounts[b.name] || 0)) || sortFn(a, b));
 
                 return [...groupA, ...groupB, ...groupC, ...groupD].slice(0, 5);
-            }, [selectedAbsent, selectedDay, selectedDate, selectedPeriod, teachersMaster, teacherCounts, subHistory, selectedSemester, busySubTeachers]);
+            }, [selectedAbsent, selectedDay, selectedDate, selectedPeriod, teachersMaster, teacherCounts, subHistory, selectedSemester, busySubTeachers, getDayClassCount, isConsecutive]);
 
-            // 수동 임의 배정 가능한 교사 목록 계산 (빈 시간 교사 전체)
+            // 수동 배정용 빈 시간 교사 전체
             const manualCandidates = useMemo(() => {
                 if (!selectedAbsent || teachersMaster.length === 0 || selectedPeriod === -1 || !selectedDay) return [];
                 return teachersMaster.filter(t => {
                     if (t.name === selectedAbsent || busySubTeachers.has(t.name)) return false;
-                    if (!t.schedule[selectedDay]) return false; 
-                    const cellContent = t.schedule[selectedDay][selectedPeriod];
-                    return cellContent === "" || cellContent === "-"; 
+                    if (!t.schedule[selectedDay]) return false;
+                    const cell = t.schedule[selectedDay][selectedPeriod];
+                    return cell === '' || cell === '-';
                 }).sort((a, b) => a.name.localeCompare(b.name));
-            }, [selectedAbsent, selectedDay, selectedDate, selectedPeriod, teachersMaster, busySubTeachers]);
+            }, [selectedAbsent, selectedDay, selectedPeriod, teachersMaster, busySubTeachers]);
 
-            // 이미 해당 날짜/교시에 배정되었는지 확인
+            // 이미 배정된 기록 확인
             const existingSub = useMemo(() => {
                 if (!selectedAbsent || selectedPeriod === -1 || !selectedDate) return null;
                 return subHistory.find(h =>
@@ -515,113 +478,97 @@ HTML
                 );
             }, [subHistory, selectedSemester, selectedAbsent, selectedDate, selectedPeriod]);
 
-            // 보강 확정 저장
             const handleSubConfirm = (teacher) => {
-                const absentTeacher = teachersMaster.find(t => t.name === selectedAbsent);
-                const newRecord = {
+                const absent = teachersMaster.find(t => t.name === selectedAbsent);
+                const record = {
                     id: Date.now().toString(),
                     semester: selectedSemester,
-                    date: selectedDate, // 이제 달력에서 선택한 정확한 날짜가 기록됩니다!
+                    date: selectedDate,
                     day: selectedDay,
                     period: selectedPeriod + 1,
                     absentName: selectedAbsent,
-                    absentDept: absentTeacher.dept,
+                    absentDept: absent.dept,
                     subName: teacher.name,
                     subDept: teacher.dept,
-                    classInfo: absentTeacher.schedule[selectedDay]?.[selectedPeriod] || "기타 배정",
-                    timestamp: Date.now()
+                    classInfo: absent.schedule[selectedDay]?.[selectedPeriod] || '기타 배정',
+                    timestamp: Date.now(),
                 };
-                
-                setSubHistory(prev => [newRecord, ...prev]);
+                setSubHistory(prev => [record, ...prev]);
                 setModalTeacher(null);
-                setManualSelectedTeacher("");
-                showToast(`${teacher.name} 선생님으로 보강이 확정 및 저장되었습니다.`);
+                setManualSelectedTeacher('');
+                showToast(`${teacher.name} 선생님으로 보강이 확정되었습니다.`);
             };
 
             const handleDeleteRecord = (id) => {
-                if(window.confirm("이 보강 기록을 삭제하시겠습니까? (누적 횟수에서도 차감됩니다)")) {
+                if (window.confirm('이 보강 기록을 삭제하시겠습니까?')) {
                     setSubHistory(prev => prev.filter(r => r.id !== id));
-                    showToast("기록이 삭제되었습니다.");
+                    showToast('기록이 삭제되었습니다.');
                 }
             };
 
             const exportToCSV = () => {
-                const currentData = subHistory.filter(h => h.semester === selectedSemester);
-                if(currentData.length === 0) {
-                    showToast("내보낼 데이터가 없습니다.");
-                    return;
-                }
-                
-                let csvContent = "--- 상세 보강 내역 ---\n";
-                csvContent += "날짜,요일,교시,결강교사,결강과목,보강담당교사,보강교사 총누적횟수,학기\n";
-                csvContent += currentData.map(h => 
-                    `"${h.date}","${dayMapKor[h.day] || h.day}요일","${h.period}교시","${h.absentName}","${h.classInfo}","${h.subName}","${teacherCounts[h.subName] || 0}회","${h.semester}"`
-                ).join("\n");
-                
-                csvContent += "\n\n\n--- 교사별 누적 보강 횟수 총괄표 ---\n";
-                csvContent += "부서,교사 성함,이번 학기 누적 횟수\n";
-                const statsRows = [...teachersMaster]
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map(t => `"${t.dept}","${t.name}","${teacherCounts[t.name] || 0}회"`)
-                    .join("\n");
-                    
-                csvContent += statsRows;
-                
-                const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+                const data = subHistory.filter(h => h.semester === selectedSemester);
+                if (data.length === 0) { showToast('내보낼 데이터가 없습니다.'); return; }
+
+                let csv = '--- 상세 보강 내역 ---\n날짜,요일,교시,결강교사,결강과목,보강담당교사,누적횟수,학기\n';
+                csv += data.map(h =>
+                    `"${h.date}","${DAY_KOR[h.day] || h.day}요일","${h.period}교시","${h.absentName}","${h.classInfo}","${h.subName}","${teacherCounts[h.subName] || 0}회","${h.semester}"`
+                ).join('\n');
+                csv += '\n\n\n--- 교사별 누적 보강 횟수 ---\n부서,교사,횟수\n';
+                csv += [...teachersMaster].sort((a,b) => a.name.localeCompare(b.name))
+                    .map(t => `"${t.dept}","${t.name}","${teacherCounts[t.name] || 0}회"`).join('\n');
+
+                const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = `보강누적기록부_${selectedSemester}.csv`;
-                link.click();
+                const a = document.createElement('a');
+                a.href = url; a.download = `보강누적기록부_${selectedSemester}.csv`; a.click();
+                URL.revokeObjectURL(url);
             };
 
+            const absentTeacherObj = teachersMaster.find(t => t.name === selectedAbsent);
+
             return (
-                <div className="min-h-screen bg-slate-50 text-slate-800 pb-20 md:pb-0 font-sans selection:bg-blue-100 selection:text-blue-900">
-                    
-                    <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-3 sticky top-0 z-30 flex items-center justify-between md:hidden shadow-sm">
+                <div className="min-h-screen bg-slate-50 text-slate-800 pb-20 md:pb-0">
+                    {/* 모바일 헤더 */}
+                    <header className="bg-white border-b border-slate-200 px-6 py-3 sticky top-0 z-30 flex items-center justify-between md:hidden shadow-sm">
                         <h1 className="font-black text-lg text-blue-600 flex items-center gap-2">
-                            <Database size={18} /> SmartSub
+                            {Database && <Database size={18} />} SmartSub
                         </h1>
                         <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded font-bold">{selectedSemester}</span>
                     </header>
 
                     <div className="flex flex-col md:flex-row min-h-screen">
+                        {/* 사이드바 */}
                         <aside className="w-64 bg-slate-900 text-white p-6 hidden md:flex flex-col sticky top-0 h-screen shadow-xl z-20">
                             <h2 className="text-xl font-black mb-8 flex items-center gap-3">
-                                <div className="bg-blue-600 p-2 rounded-xl"><Database size={20}/></div>
+                                <div className="bg-blue-600 p-2 rounded-xl">{Database && <Database size={20}/>}</div>
                                 SmartSub
                             </h2>
                             <nav className="space-y-2 flex-1">
                                 {[
-                                    { id: 'register', label: '보강 배정', icon: <UserCheck size={18}/> },
-                                    { id: 'history', label: '누적 기록부', icon: <History size={18}/> },
-                                    { id: 'stats', label: '교사별 통계', icon: <BarChart3 size={18}/> }
-                                ].map(item => (
-                                    <button 
-                                        key={item.id}
-                                        onClick={() => setActiveTab(item.id)}
-                                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/30 translate-x-1' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
-                                    >
-                                        {item.icon} {item.label}
+                                    { id: 'register', label: '보강 배정', icon: UserCheck },
+                                    { id: 'history',  label: '누적 기록부', icon: History },
+                                    { id: 'stats',    label: '교사별 통계', icon: BarChart3 },
+                                ].map(({ id, label, icon: Icon }) => (
+                                    <button key={id} onClick={() => setActiveTab(id)}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all ${activeTab === id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>
+                                        {Icon && <Icon size={18}/>} {label}
                                     </button>
                                 ))}
                             </nav>
-                            
                             <div className="pt-4 border-t border-slate-800 mt-auto">
                                 <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-2">자동 배정 기준</p>
-                                <ul className="text-[11px] text-slate-400 space-y-1.5 opacity-90">
-                                    <li className="flex gap-2"><span className="text-blue-400">1</span> <div><b className="text-slate-200">3연강 절대 불가</b> (기존+보강 합산)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">2</span> <div><b className="text-slate-200">동교과 우선</b> (3연강 제외)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">3</span> <div><b className="text-slate-200">타교과 확대</b> (동교과 불가 시)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">4</span> <div><b className="text-slate-200">당일 시수 고려</b> (당일 수업 적은 자)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">5</span> <div><b className="text-slate-200">가나다순 로테이션</b> (직전 배정자 후순위)</div></li>
-                                    <li className="flex gap-2"><span className="text-blue-400">6</span> <div><b className="text-slate-200">형평성 조율</b> (2회 이상 차이 시 후순위)</div></li>
+                                <ul className="text-[11px] text-slate-400 space-y-1.5">
+                                    <li className="flex gap-2"><span className="text-blue-400">1</span><div><b className="text-slate-200">3연강 절대 불가</b></div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">2</span><div><b className="text-slate-200">동교과 우선</b></div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">3</span><div><b className="text-slate-200">타교과 확대</b> (동교과 불가 시)</div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">4</span><div><b className="text-slate-200">당일 시수 고려</b></div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">5</span><div><b className="text-slate-200">가나다순 로테이션</b></div></li>
+                                    <li className="flex gap-2"><span className="text-blue-400">6</span><div><b className="text-slate-200">형평성 조율</b> (2회 이상 차이)</div></li>
                                 </ul>
                             </div>
-
                             <div className="pt-4 border-t border-slate-800 mt-4">
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Storage Mode</p>
-                                <div className="flex items-center gap-2 mt-1 text-[11px] font-bold text-green-400">
+                                <div className="flex items-center gap-2 text-[11px] font-bold text-green-400">
                                     <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
                                     Local Storage Active
                                 </div>
@@ -629,49 +576,53 @@ HTML
                         </aside>
 
                         <main className="flex-1 w-full max-w-5xl mx-auto p-4 md:px-8 md:py-6">
-                            
+
+                            {/* ── 보강 배정 탭 ── */}
                             {activeTab === 'register' && (
-                                <div className="space-y-4 md:space-y-5 animate-in fade-in duration-500">
+                                <div className="space-y-4 fade-in">
                                     <div className="hidden md:block">
-                                        <h2 className="text-2xl font-black text-slate-800 tracking-tight">지능형 보강 배정</h2>
-                                        <p className="text-slate-500 mt-1 text-sm font-medium">연강 방지 및 누적 횟수를 고려하여 최적의 교사를 추천합니다.</p>
+                                        <h2 className="text-2xl font-black text-slate-800">지능형 보강 배정</h2>
+                                        <p className="text-slate-500 mt-1 text-sm">연강 방지 및 누적 횟수를 고려하여 최적의 교사를 추천합니다.</p>
                                     </div>
 
-                                    {/* 입력 폼 여백/간격 축소 */}
+                                    {/* 입력 폼 */}
                                     <div className="bg-white p-4 md:p-5 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-4">
                                         <div>
-                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 ml-1">결강 교사</label>
-                                            <select className="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold transition-shadow" value={selectedAbsent} onChange={e => setSelectedAbsent(e.target.value)}>
+                                            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">결강 교사</label>
+                                            <select className="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+                                                value={selectedAbsent} onChange={e => setSelectedAbsent(e.target.value)}>
                                                 <option value="">교사 선택</option>
-                                                {[...teachersMaster]
-                                                    .sort((a, b) => a.name.localeCompare(b.name))
+                                                {[...teachersMaster].sort((a,b) => a.name.localeCompare(b.name))
                                                     .map(t => <option key={t.id} value={t.name}>[{t.dept}] {t.name}</option>)}
                                             </select>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3 md:col-span-2">
-                                            {/* 달력 선택으로 변경된 UI */}
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">결강 일자 (달력)</label>
-                                                <input 
-                                                    type="date"
+                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">결강 일자</label>
+                                                <input type="date"
                                                     className="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-slate-700"
                                                     value={selectedDate}
-                                                    onChange={e => setSelectedDate(e.target.value)}
-                                                />
+                                                    onChange={e => setSelectedDate(e.target.value)} />
                                             </div>
                                             <div>
-                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">교시 <span className="text-blue-500 font-black">({dayMapKor[selectedDay] || '-'}요일)</span></label>
-                                                <select className="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold" value={selectedPeriod} onChange={e => setSelectedPeriod(parseInt(e.target.value))} disabled={selectedAbsent !== "" && availablePeriods.length === 0}>
-                                                    {selectedAbsent === "" ? (
+                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+                                                    교시 <span className="text-blue-500 font-black">({DAY_KOR[selectedDay] || '-'}요일)</span>
+                                                </label>
+                                                <select className="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold"
+                                                    value={selectedPeriod}
+                                                    onChange={e => setSelectedPeriod(parseInt(e.target.value))}
+                                                    disabled={selectedAbsent !== '' && availablePeriods.length === 0}>
+                                                    {selectedAbsent === '' ? (
                                                         [0,1,2,3,4,5,6].map(i => <option key={i} value={i}>{i+1}교시</option>)
                                                     ) : availablePeriods.length === 0 ? (
                                                         <option value="-1">해당 요일 수업 없음</option>
                                                     ) : (
                                                         availablePeriods.map(i => {
-                                                            const t = teachersMaster.find(t => t.name === selectedAbsent);
-                                                            const className = t ? t.schedule[selectedDay]?.[i] : '';
-                                                            const isAssigned = subHistory.some(h => h.semester === selectedSemester && h.absentName === selectedAbsent && h.date === selectedDate && h.period === i + 1);
-                                                            return <option key={i} value={i}>{i+1}교시 ({className}){isAssigned ? ' - [배정완료]' : ''}</option>;
+                                                            const cls = absentTeacherObj?.schedule[selectedDay]?.[i] || '';
+                                                            const done = subHistory.some(h =>
+                                                                h.semester === selectedSemester && h.absentName === selectedAbsent &&
+                                                                h.date === selectedDate && h.period === i + 1);
+                                                            return <option key={i} value={i}>{i+1}교시 ({cls}){done ? ' - [배정완료]' : ''}</option>;
                                                         })
                                                     )}
                                                 </select>
@@ -679,101 +630,96 @@ HTML
                                         </div>
                                     </div>
 
-                                    {/* 후보자 목록 간격 축소 */}
-                                    <div className="space-y-2.5 relative">
+                                    {/* 추천 후보 */}
+                                    <div className="space-y-2.5">
                                         <h3 className="text-base font-black text-slate-800 flex items-center gap-2 px-1">
-                                            <Award size={18} className="text-blue-600" /> 공정 추천 후보 TOP 5
+                                            {Award && <Award size={18} className="text-blue-600"/>} 공정 추천 후보 TOP 5
                                         </h3>
-                                        
+
                                         {teachersMaster.length === 0 ? (
-                                            <div className="bg-white p-8 md:p-12 rounded-2xl border-2 border-dashed border-slate-200 text-center text-slate-400">
-                                                <AlertCircle className="mx-auto mb-3 opacity-20" size={40} />
-                                                <p className="font-bold text-sm">시스템에 등록된 시간표가 없습니다.<br/>코드 상단의 <code>RAW_TIME_CSV</code> 변수에 데이터를 입력해주세요.</p>
+                                            <div className="bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center text-slate-400">
+                                                {AlertCircle && <AlertCircle className="mx-auto mb-3 opacity-20" size={40}/>}
+                                                <p className="font-bold text-sm">시간표 데이터를 불러오는 중입니다...</p>
                                             </div>
                                         ) : !selectedAbsent ? (
-                                            <div className="bg-white p-8 md:p-12 rounded-2xl border-2 border-dashed border-slate-200 text-center text-slate-400">
-                                                <Search className="mx-auto mb-3 opacity-20" size={40} />
+                                            <div className="bg-white p-10 rounded-2xl border-2 border-dashed border-slate-200 text-center text-slate-400">
+                                                {Search && <Search className="mx-auto mb-3 opacity-20" size={40}/>}
                                                 <p className="font-bold text-sm">결강 교사를 선택하면 AI가 최적의 후보를 분석합니다.</p>
                                             </div>
                                         ) : selectedPeriod === -1 ? (
-                                            <div className="bg-slate-50 p-8 md:p-12 rounded-2xl border border-slate-200 text-center">
-                                                <Layout size={36} className="mx-auto mb-3 text-slate-300" />
-                                                <p className="text-slate-600 font-black text-base">선택하신 날짜({dayMapKor[selectedDay] || '-'}요일)에는 수업이 없습니다.</p>
-                                                <p className="text-xs text-slate-400 mt-1 font-medium">달력에서 결강 교사의 다른 날짜를 선택해주세요.</p>
+                                            <div className="bg-slate-50 p-10 rounded-2xl border border-slate-200 text-center">
+                                                {Layout && <Layout size={36} className="mx-auto mb-3 text-slate-300"/>}
+                                                <p className="text-slate-600 font-black">선택하신 날짜({DAY_KOR[selectedDay] || '-'}요일)에는 수업이 없습니다.</p>
+                                                <p className="text-xs text-slate-400 mt-1">다른 날짜를 선택해주세요.</p>
                                             </div>
                                         ) : existingSub ? (
-                                            <div className="bg-green-50 p-8 md:p-12 rounded-2xl border border-green-200 text-center">
-                                                <CheckCircle2 size={36} className="mx-auto mb-3 text-green-500" />
+                                            <div className="bg-green-50 p-10 rounded-2xl border border-green-200 text-center">
+                                                {CheckCircle2 && <CheckCircle2 size={36} className="mx-auto mb-3 text-green-500"/>}
                                                 <p className="text-green-800 font-black text-lg">이미 배정이 완료된 수업입니다.</p>
                                                 <p className="text-sm text-green-700 mt-1 font-bold">담당 교사: {existingSub.subName} 선생님</p>
-                                                <p className="text-xs text-green-600 mt-1 font-medium">수정을 원하시면 [누적 기록부]에서 해당 기록을 삭제해주세요.</p>
+                                                <p className="text-xs text-green-600 mt-1">[누적 기록부]에서 해당 기록을 삭제하면 재배정 가능합니다.</p>
                                             </div>
                                         ) : topCandidates.length === 0 ? (
-                                            <div className="bg-orange-50 p-8 md:p-10 rounded-2xl border border-orange-100 text-center">
-                                                <AlertCircle size={36} className="mx-auto mb-2 text-orange-400" />
-                                                <p className="text-orange-700 font-black text-base">추천 가능한 교사가 없습니다.</p>
-                                                <p className="text-[11px] text-orange-500 mt-1 font-medium">모든 교사가 수업 중이거나 3연강 제한에 해당됩니다.</p>
+                                            <div className="bg-orange-50 p-10 rounded-2xl border border-orange-100 text-center">
+                                                {AlertCircle && <AlertCircle size={36} className="mx-auto mb-2 text-orange-400"/>}
+                                                <p className="text-orange-700 font-black">추천 가능한 교사가 없습니다.</p>
+                                                <p className="text-xs text-orange-500 mt-1">모든 교사가 수업 중이거나 3연강 제한에 해당됩니다.</p>
                                             </div>
                                         ) : topCandidates.map((t, idx) => (
-                                            <button 
-                                                key={t.id} 
-                                                onClick={() => setModalTeacher(t)}
-                                                className="w-full bg-white p-3 md:p-4 rounded-xl border border-slate-200 flex items-center justify-between hover:border-blue-500 hover:shadow-md transition-all text-left active:scale-[0.98] group"
-                                            >
+                                            <button key={t.id} onClick={() => setModalTeacher(t)}
+                                                className="w-full bg-white p-3 md:p-4 rounded-xl border border-slate-200 flex items-center justify-between hover:border-blue-500 hover:shadow-md transition-all text-left group">
                                                 <div className="flex items-center gap-4">
-                                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black text-lg ${idx === 0 ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-400'}`}>
+                                                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-black text-lg ${idx === 0 ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400'}`}>
                                                         {idx + 1}
                                                     </div>
                                                     <div>
                                                         <div className="flex items-center gap-2">
                                                             <span className="text-base font-bold text-slate-800">{t.name}</span>
-                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${t.dept === teachersMaster.find(a=>a.name===selectedAbsent)?.dept ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${t.dept === absentTeacherObj?.dept ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
                                                                 {t.dept}
                                                             </span>
                                                         </div>
                                                         <div className="flex items-center gap-3 mt-1 text-[11px] font-bold text-slate-400">
-                                                            <span className="flex items-center gap-1 text-slate-500"><Clock size={12} /> 당일 {getDayClassCountLocal(t)}시간</span>
-                                                            <span className="flex items-center gap-1"><Award size={12} /> 학기 누적 <span className="text-blue-500">{teacherCounts[t.name] || 0}</span>회</span>
+                                                            <span className="flex items-center gap-1 text-slate-500">{Clock && <Clock size={12}/>} 당일 {getDayClassCount(t)}시간</span>
+                                                            <span className="flex items-center gap-1">{Award && <Award size={12}/>} 누적 <span className="text-blue-500">{teacherCounts[t.name] || 0}</span>회</span>
                                                         </div>
                                                     </div>
                                                 </div>
                                                 <div className="bg-slate-50 p-2.5 rounded-xl group-hover:bg-blue-50 transition-colors">
-                                                    <ChevronRight size={18} className="text-slate-300 group-hover:text-blue-600" />
+                                                    {ChevronRight && <ChevronRight size={18} className="text-slate-300 group-hover:text-blue-600"/>}
                                                 </div>
                                             </button>
                                         ))}
                                     </div>
 
-                                    {/* 수동 임의 배정 영역 */}
+                                    {/* 수동 배정 */}
                                     {selectedAbsent && selectedPeriod !== -1 && !existingSub && teachersMaster.length > 0 && selectedDay && (
-                                        <div className="mt-4 pt-5 border-t border-slate-200/60 animate-in fade-in">
+                                        <div className="mt-4 pt-5 border-t border-slate-200">
                                             <h3 className="text-[13px] font-black text-slate-600 flex items-center gap-1.5 px-1 mb-2.5">
-                                                <MousePointerClick size={16} className="text-slate-400" /> 수동 임의 배정 <span className="text-[10px] text-slate-400 font-medium ml-1">(빈 시간 교사 전체)</span>
+                                                {MousePointerClick && <MousePointerClick size={16} className="text-slate-400"/>}
+                                                수동 임의 배정 <span className="text-[10px] text-slate-400 font-medium ml-1">(빈 시간 교사 전체)</span>
                                             </h3>
                                             <div className="flex gap-2">
-                                                <select 
-                                                    className="flex-1 p-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300 font-bold shadow-sm"
+                                                <select className="flex-1 p-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-slate-300 font-bold shadow-sm"
                                                     value={manualSelectedTeacher}
-                                                    onChange={e => setManualSelectedTeacher(e.target.value)}
-                                                >
-                                                    <option value="">교사 직접 선택 (이름 가나다순)...</option>
+                                                    onChange={e => setManualSelectedTeacher(e.target.value)}>
+                                                    <option value="">교사 직접 선택 (가나다순)...</option>
                                                     {manualCandidates.map(t => {
-                                                        const isWarning = isConsecutive(t, selectedDay, selectedPeriod);
+                                                        const warn = isConsecutive(t, selectedDay, selectedPeriod);
                                                         return (
                                                             <option key={t.id} value={t.name}>
-                                                                {t.name} ({t.dept}) - 당일 {getDayClassCountLocal(t)}시간 {isWarning ? ' [⚠️3연강 주의]' : ''}
+                                                                {t.name} ({t.dept}) - 당일 {getDayClassCount(t)}시간{warn ? ' [⚠️3연강 주의]' : ''}
                                                             </option>
                                                         );
                                                     })}
                                                 </select>
-                                                <button 
+                                                <button
                                                     disabled={!manualSelectedTeacher}
                                                     onClick={() => {
                                                         const t = teachersMaster.find(x => x.name === manualSelectedTeacher);
-                                                        if(t) setModalTeacher(t);
+                                                        if (t) setModalTeacher(t);
                                                     }}
-                                                    className="px-5 py-3 bg-slate-800 text-white font-bold rounded-xl shadow-md hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-slate-800 transition-all text-sm whitespace-nowrap"
-                                                >
+                                                    className="px-5 py-3 bg-slate-800 text-white font-bold rounded-xl shadow-md hover:bg-slate-700 disabled:opacity-30 transition-all text-sm whitespace-nowrap">
                                                     선택
                                                 </button>
                                             </div>
@@ -782,23 +728,23 @@ HTML
                                 </div>
                             )}
 
+                            {/* ── 누적 기록부 탭 ── */}
                             {activeTab === 'history' && (
-                                <div className="space-y-5 animate-in fade-in duration-500">
+                                <div className="space-y-5 fade-in">
                                     <header className="flex flex-col md:flex-row md:items-end justify-between gap-3">
-                                        <div>
-                                            <h2 className="text-2xl font-black text-slate-800">보강 누적 기록부</h2>
-                                        </div>
+                                        <h2 className="text-2xl font-black text-slate-800">보강 누적 기록부</h2>
                                         <div className="flex gap-2">
-                                            <button onClick={exportToCSV} className="p-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl font-black shadow-sm flex items-center gap-2 hover:bg-slate-50 text-sm">
-                                                <Download size={16}/> 엑셀 내보내기
+                                            <button onClick={exportToCSV}
+                                                className="p-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl font-black shadow-sm flex items-center gap-2 hover:bg-slate-50 text-sm">
+                                                {Download && <Download size={16}/>} 엑셀 내보내기
                                             </button>
-                                            <select className="p-2.5 bg-white border border-slate-200 rounded-xl font-black outline-none shadow-sm text-sm" value={selectedSemester} onChange={e => setSelectedSemester(e.target.value)}>
+                                            <select className="p-2.5 bg-white border border-slate-200 rounded-xl font-black outline-none shadow-sm text-sm"
+                                                value={selectedSemester} onChange={e => setSelectedSemester(e.target.value)}>
                                                 <option value="2026-1">2026-1학기</option>
                                                 <option value="2026-2">2026-2학기</option>
                                             </select>
                                         </div>
                                     </header>
-
                                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                                         <div className="overflow-x-auto">
                                             <table className="w-full text-left whitespace-nowrap">
@@ -813,12 +759,12 @@ HTML
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-50 text-sm">
                                                     {subHistory.filter(h => h.semester === selectedSemester).length === 0 ? (
-                                                        <tr><td colSpan="5" className="py-16 text-center text-slate-400 font-bold">저장된 로컬 내역이 없습니다.</td></tr>
+                                                        <tr><td colSpan="5" className="py-16 text-center text-slate-400 font-bold">저장된 내역이 없습니다.</td></tr>
                                                     ) : subHistory.filter(h => h.semester === selectedSemester).map(h => (
-                                                        <tr key={h.id} className="hover:bg-slate-50/80 transition-colors">
+                                                        <tr key={h.id} className="hover:bg-slate-50 transition-colors">
                                                             <td className="px-5 py-3.5">
                                                                 <p className="font-bold text-slate-700">{h.date}</p>
-                                                                <p className="text-[10px] text-slate-400 font-bold mt-0.5 bg-slate-100 inline-block px-1.5 rounded-sm">{dayMapKor[h.day] || h.day}요일 {h.period}교시</p>
+                                                                <p className="text-[10px] text-slate-400 font-bold mt-0.5 bg-slate-100 inline-block px-1.5 rounded">{DAY_KOR[h.day] || h.day}요일 {h.period}교시</p>
                                                             </td>
                                                             <td className="px-5 py-3.5">
                                                                 <div className="flex items-center gap-1.5">
@@ -832,8 +778,9 @@ HTML
                                                             </td>
                                                             <td className="px-5 py-3.5 font-medium text-slate-500">{h.classInfo}</td>
                                                             <td className="px-5 py-3.5 text-right">
-                                                                <button onClick={() => handleDeleteRecord(h.id)} className="p-1.5 text-slate-300 hover:text-red-500 transition-colors">
-                                                                    <Trash2 size={16} />
+                                                                <button onClick={() => handleDeleteRecord(h.id)}
+                                                                    className="p-1.5 text-slate-300 hover:text-red-500 transition-colors">
+                                                                    {Trash2 && <Trash2 size={16}/>}
                                                                 </button>
                                                             </td>
                                                         </tr>
@@ -845,30 +792,35 @@ HTML
                                 </div>
                             )}
 
+                            {/* ── 통계 탭 ── */}
                             {activeTab === 'stats' && (
-                                <div className="space-y-4 animate-in fade-in duration-500">
+                                <div className="space-y-4 fade-in">
                                     <header className="flex flex-col md:flex-row md:items-end justify-between gap-3">
                                         <div>
                                             <h2 className="text-2xl font-black text-slate-800">교사별 누적 통계</h2>
-                                            <p className="text-sm text-slate-500 mt-1 font-medium">선택된 학기의 전체 보강 횟수 분포입니다.</p>
+                                            <p className="text-sm text-slate-500 mt-1">선택 학기의 전체 보강 횟수 분포입니다.</p>
                                         </div>
-                                        <div className="flex bg-slate-100 p-1 rounded-xl shrink-0 self-start md:self-auto">
-                                            <button onClick={() => setStatsView('name')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${statsView === 'name' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>이름 가나다순</button>
-                                            <button onClick={() => setStatsView('dept')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${statsView === 'dept' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>교과별 배열</button>
+                                        <div className="flex bg-slate-100 p-1 rounded-xl shrink-0">
+                                            <button onClick={() => setStatsView('name')}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${statsView === 'name' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                                이름 가나다순
+                                            </button>
+                                            <button onClick={() => setStatsView('dept')}
+                                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${statsView === 'dept' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                                교과별 배열
+                                            </button>
                                         </div>
                                     </header>
 
                                     {statsView === 'name' ? (
                                         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
-                                            {[...teachersMaster]
-                                                .sort((a, b) => a.name.localeCompare(b.name))
-                                                .map(t => {
+                                            {[...teachersMaster].sort((a,b) => a.name.localeCompare(b.name)).map(t => {
                                                 const count = teacherCounts[t.name] || 0;
                                                 return (
-                                                    <div key={t.id} className={`p-2.5 rounded-xl border flex flex-col justify-between transition-colors ${count > 0 ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50/50 border-slate-100'}`}>
+                                                    <div key={t.id} className={`p-2.5 rounded-xl border flex flex-col justify-between transition-colors ${count > 0 ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-slate-100'}`}>
                                                         <div className="flex justify-between items-start mb-1">
-                                                            <span className="text-[9px] font-black bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded tracking-widest">{t.dept}</span>
-                                                            {count > 5 && <AlertCircle size={12} className="text-orange-500 animate-pulse" />}
+                                                            <span className="text-[9px] font-black bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded">{t.dept}</span>
+                                                            {count > 5 && AlertCircle && <AlertCircle size={12} className="text-orange-500 animate-pulse"/>}
                                                         </div>
                                                         <div className="flex items-end justify-between mt-1">
                                                             <h4 className={`text-xs font-bold whitespace-nowrap ${count > 0 ? 'text-slate-800' : 'text-slate-500'}`}>{t.name}</h4>
@@ -878,46 +830,39 @@ HTML
                                                             </div>
                                                         </div>
                                                     </div>
-                                                )
+                                                );
                                             })}
                                         </div>
                                     ) : (
                                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2.5 items-start">
                                             {(() => {
-                                                const deptOrder = ['국어', '수학', '영어', '사회', '과학', '예체', '교양'];
+                                                const deptOrder = ['국어','수학','영어','사회','과학','예술','교양'];
                                                 const grouped = {};
-                                                
                                                 teachersMaster.forEach(t => {
-                                                    let d = t.dept || '미분류';
-                                                    if (d === '예술') d = '예체';
-                                                    if (d === '미분류' || !deptOrder.includes(d)) return;
-                                                    
+                                                    const d = t.dept || '미분류';
+                                                    if (!deptOrder.includes(d)) return;
                                                     if (!grouped[d]) grouped[d] = [];
                                                     grouped[d].push(t);
                                                 });
-
                                                 return deptOrder.map(dept => {
                                                     if (!grouped[dept] || grouped[dept].length === 0) return null;
-                                                    
                                                     return (
                                                         <div key={dept} className="flex flex-col gap-1.5">
                                                             <div className="bg-slate-100 p-1.5 rounded-lg text-center border border-slate-200 shadow-sm">
                                                                 <h4 className="text-[11px] font-black text-slate-600">{dept}과</h4>
                                                             </div>
                                                             <div className="flex flex-col gap-1">
-                                                                {grouped[dept].sort((a, b) => a.name.localeCompare(b.name)).map(t => {
+                                                                {grouped[dept].sort((a,b) => a.name.localeCompare(b.name)).map(t => {
                                                                     const count = teacherCounts[t.name] || 0;
                                                                     return (
-                                                                        <div key={t.id} className={`px-2 py-1.5 rounded-md border flex items-center justify-between transition-colors ${count > 0 ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50/50 border-slate-100'}`}>
+                                                                        <div key={t.id} className={`px-2 py-1.5 rounded-md border flex items-center justify-between ${count > 0 ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-slate-100'}`}>
                                                                             <div className="flex items-center gap-1 overflow-hidden">
                                                                                 <h4 className={`text-[11px] font-bold whitespace-nowrap ${count > 0 ? 'text-slate-800' : 'text-slate-500'}`}>{t.name}</h4>
-                                                                                {count > 5 && <AlertCircle size={10} className="text-orange-500 animate-pulse shrink-0" />}
+                                                                                {count > 5 && AlertCircle && <AlertCircle size={10} className="text-orange-500 animate-pulse shrink-0"/>}
                                                                             </div>
-                                                                            <div className="flex items-baseline shrink-0">
-                                                                                <span className={`text-sm font-black leading-none ${count > 5 ? 'text-orange-500' : count > 0 ? 'text-blue-600' : 'text-slate-300'}`}>{count}</span>
-                                                                            </div>
+                                                                            <span className={`text-sm font-black leading-none shrink-0 ${count > 5 ? 'text-orange-500' : count > 0 ? 'text-blue-600' : 'text-slate-300'}`}>{count}</span>
                                                                         </div>
-                                                                    )
+                                                                    );
                                                                 })}
                                                             </div>
                                                         </div>
@@ -931,23 +876,26 @@ HTML
                         </main>
                     </div>
 
-                    <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t border-slate-200 px-2 py-1.5 flex justify-around md:hidden z-40 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.05)]">
+                    {/* 모바일 하단 탭바 */}
+                    <footer className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-2 py-1.5 flex justify-around md:hidden z-40 shadow-lg">
                         {[
-                            { id: 'register', label: '배정', icon: <UserCheck size={20}/> },
-                            { id: 'history', label: '기록', icon: <History size={20}/> },
-                            { id: 'stats', label: '통계', icon: <BarChart3 size={20}/> }
-                        ].map(item => (
-                            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-1.5 w-14 transition-all ${activeTab === item.id ? 'text-blue-600 -translate-y-0.5' : 'text-slate-400 hover:text-slate-600'}`}>
-                                {item.icon}
-                                <span className="text-[10px] font-bold">{item.label}</span>
+                            { id: 'register', label: '배정', icon: UserCheck },
+                            { id: 'history',  label: '기록',  icon: History },
+                            { id: 'stats',    label: '통계',  icon: BarChart3 },
+                        ].map(({ id, label, icon: Icon }) => (
+                            <button key={id} onClick={() => setActiveTab(id)}
+                                className={`flex flex-col items-center gap-1 p-1.5 w-14 transition-all ${activeTab === id ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                                {Icon && <Icon size={20}/>}
+                                <span className="text-[10px] font-bold">{label}</span>
                             </button>
                         ))}
                     </footer>
 
+                    {/* 보강 확정 모달 */}
                     {modalTeacher && (
                         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4">
-                            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setModalTeacher(null)}></div>
-                            <div className="relative bg-white w-full max-w-lg rounded-t-[2rem] md:rounded-[2rem] overflow-hidden shadow-2xl animate-in slide-in-from-bottom-8 duration-300 max-h-[90vh] flex flex-col">
+                            <div className="absolute inset-0 bg-slate-900/40" onClick={() => setModalTeacher(null)}></div>
+                            <div className="relative bg-white w-full max-w-lg rounded-t-3xl md:rounded-3xl overflow-hidden shadow-2xl slide-up max-h-[90vh] flex flex-col">
                                 <div className="bg-slate-900 text-white p-6 shrink-0">
                                     <div className="flex justify-between items-start">
                                         <div>
@@ -957,32 +905,40 @@ HTML
                                                 <span className="bg-blue-500 px-2.5 py-1 rounded-full text-[10px] font-bold">누적 {teacherCounts[modalTeacher.name] || 0}회</span>
                                             </div>
                                         </div>
-                                        <button onClick={() => setModalTeacher(null)} className="p-1.5 hover:bg-white/20 rounded-full transition-colors"><X size={20}/></button>
+                                        <button onClick={() => setModalTeacher(null)} className="p-1.5 hover:bg-white/20 rounded-full transition-colors">
+                                            {X && <X size={20}/>}
+                                        </button>
                                     </div>
                                 </div>
                                 <div className="p-5 overflow-y-auto hide-scrollbar">
-                                    <h5 className="font-black text-slate-800 mb-3 flex items-center gap-2 text-sm"><Layout size={16} className="text-blue-600"/> 1주일 시간표 미리보기</h5>
+                                    <h5 className="font-black text-slate-800 mb-3 flex items-center gap-2 text-sm">
+                                        {Layout && <Layout size={16} className="text-blue-600"/>} 1주일 시간표 미리보기
+                                    </h5>
                                     <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-100">
                                         <table className="w-full text-[10px] md:text-xs">
                                             <thead>
-                                                <tr className="text-slate-400 font-bold border-b border-slate-200 uppercase">
-                                                    <th className="py-2">교시</th>{['월','화','수','목','금'].map(d => <th key={d}>{dayMapKor[d]}</th>)}
+                                                <tr className="text-slate-400 font-bold border-b border-slate-200">
+                                                    {/* 수정: d가 이미 한국어이므로 DAY_KOR 거치지 않음 */}
+                                                    <th className="py-2">교시</th>
+                                                    {DAYS_KOR_LIST.map(d => <th key={d}>{d}</th>)}
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
                                                 {[0,1,2,3,4,5,6].map(pIdx => (
                                                     <tr key={pIdx}>
                                                         <td className="py-2 text-center text-slate-400 font-black bg-white">{pIdx+1}</td>
-                                                        {['mon','tue','wed','thu','fri'].map(day => {
+                                                        {DAYS_EN.map(day => {
                                                             const isTarget = day === selectedDay && pIdx === selectedPeriod;
                                                             const content = modalTeacher.schedule[day][pIdx];
                                                             return (
                                                                 <td key={day} className={`p-1 text-center ${isTarget ? 'bg-blue-100' : 'bg-white'}`}>
                                                                     {isTarget ? (
-                                                                        <div className="bg-blue-600 text-white py-1 px-1 rounded-md font-bold animate-pulse shadow-sm">배정예정</div>
+                                                                        <div className="bg-blue-600 text-white py-1 px-1 rounded-md font-bold text-[9px] animate-pulse shadow-sm">배정예정</div>
                                                                     ) : content ? (
-                                                                        <div className="bg-slate-100 text-slate-500 py-1 px-1 rounded-md font-medium truncate max-w-[45px] mx-auto opacity-70">{content}</div>
-                                                                    ) : <span className="text-slate-200">-</span>}
+                                                                        <div className="bg-slate-100 text-slate-500 py-1 px-1 rounded-md font-medium truncate max-w-[45px] mx-auto text-[9px]">{content}</div>
+                                                                    ) : (
+                                                                        <span className="text-slate-200">-</span>
+                                                                    )}
                                                                 </td>
                                                             );
                                                         })}
@@ -991,19 +947,22 @@ HTML
                                             </tbody>
                                         </table>
                                     </div>
-                                    <div className="mt-5 flex gap-2 shrink-0">
-                                        <button onClick={() => setModalTeacher(null)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-bold rounded-xl hover:bg-slate-200 transition-all text-sm">취소</button>
-                                        <button onClick={() => handleSubConfirm(modalTeacher)} className="flex-[2] py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 text-sm">이 기록 확정하기</button>
+                                    <div className="mt-5 flex gap-2">
+                                        <button onClick={() => setModalTeacher(null)}
+                                            className="flex-1 py-3 bg-slate-100 text-slate-500 font-bold rounded-xl hover:bg-slate-200 transition-all text-sm">취소</button>
+                                        <button onClick={() => handleSubConfirm(modalTeacher)}
+                                            className="flex-[2] py-3 bg-blue-600 text-white font-bold rounded-xl shadow-md hover:bg-blue-700 transition-all text-sm">이 기록 확정하기</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
+                    {/* 토스트 메시지 */}
                     {toastMsg && (
                         <div className="fixed bottom-20 md:bottom-8 left-1/2 -translate-x-1/2 z-50 toast-animate">
                             <div className="bg-slate-800 text-white px-5 py-3 rounded-xl shadow-2xl font-bold flex items-center gap-2 min-w-[260px] justify-center text-sm">
-                                <CheckCircle2 className="text-green-400" size={18} />
+                                {CheckCircle2 && <CheckCircle2 className="text-green-400" size={18}/>}
                                 {toastMsg}
                             </div>
                         </div>
