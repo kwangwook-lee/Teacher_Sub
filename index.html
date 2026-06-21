@@ -1,11 +1,12 @@
+HTML
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>지능형 보강 관리 시스템 Pro</title>
+    
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
         body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8fafc; }
@@ -19,17 +20,24 @@
         }
         .toast-animate { animation: slideUpFade 3s ease-in-out forwards; }
     </style>
+
+    <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script src="https://unpkg.com/lucide-react@0.292.0/dist/umd/lucide-react.min.js"></script>
 </head>
 <body>
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module" data-presets="react">
-        import React, { useState, useEffect, useMemo } from 'https://esm.sh/react@18.2.0';
-        import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
-        import {
+    <script type="text/babel">
+        // 5. import 에러를 피하기 위해, 로드된 전역 객체에서 필요한 기능을 바로 꺼내 씁니다.
+        const { useState, useEffect, useMemo } = React;
+        const { createRoot } = ReactDOM;
+        const {
             UserCheck, Search, AlertCircle, X, ChevronRight, Layout, 
             Award, Database, CheckCircle2, History, BarChart3, Download, Trash2, Clock, MousePointerClick
-        } from 'https://esm.sh/lucide-react@0.292.0';
+        } = lucideReact;
 
         // ============================================================================
         // [1] 데이터 설정 영역: 아래 백틱(`) 사이에 CSV 파일의 텍스트 내용을 붙여넣으세요.
